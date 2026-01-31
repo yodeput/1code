@@ -743,6 +743,15 @@ export const apiKeyOnboardingCompletedAtom = atomWithStorage<boolean>(
   { getOnInit: true },
 )
 
+// Whether user has seen the CLI config detected page
+// This tracks if the user was shown the "Configuration Detected" screen
+export const cliConfigDetectedShownAtom = atomWithStorage<boolean>(
+  "onboarding:cli-config-detected-shown",
+  false,
+  undefined,
+  { getOnInit: true },
+)
+
 // ============================================
 // SESSION INFO ATOMS (MCP, Plugins, Tools)
 // ============================================
