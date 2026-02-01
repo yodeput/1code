@@ -252,5 +252,10 @@
       "provider": "generic",
       "url": "https://cdn.21st.dev/releases/desktop"
     }
+  },
+  "pnpm": {
+    "overrides": {
+      "source-map-support>source-map": "0.7.4"
+    }
   }
 }
