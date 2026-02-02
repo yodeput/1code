@@ -190,6 +190,7 @@ export function AgentsContent() {
 
   // Fetch all projects for git info (like sidebar does)
   const { data: projects } = trpc.projects.list.useQuery(
+    undefined, // no input
     // Poll every 5 seconds in remote mode to sync with desktop changes
     isRemoteMode ? { refetchInterval: 5000 } : undefined,
   )

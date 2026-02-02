@@ -50,7 +50,7 @@ const subscriptionCleanups = new Map<string, () => void>()
 interface SharedChatSubscription {
   observable: any
   subscription: any
-  clients: Set<WebSocket>
+  clients: Map<WebSocket, string> // Map of WebSocket to subscription ID
   // Event emitter for IPC clients to listen
   listeners: Set<(data: any) => void>
 }
@@ -424,9 +424,9 @@ export function broadcastChatData(subChatId: string, data: any): void {
   console.log(`[WS] Broadcasting chat data to ${sharedSub.clients.size} WebSocket clients and ${sharedSub.listeners.size} IPC listeners for subChatId: ${subChatId}`)
 
   // Broadcast to WebSocket clients
-  for (const clientWs of sharedSub.clients) {
+  for (const [clientWs, subId] of sharedSub.clients) {
     send(clientWs, {
-      id: null,
+      id: subId,
       type: "subscription",
       data: data,
     })
@@ -455,7 +455,7 @@ export function subscribeToChatData(subChatId: string, callback: (data: any) => 
     sharedSub = {
       observable: null,
       subscription: null,
-      clients: new Set(),
+      clients: new Map(),
       listeners: new Set(),
     }
     sharedChatSubscriptions.set(subChatId, sharedSub)
@@ -587,9 +587,9 @@ async function handleMessage(
               console.log(`[WS] Broadcasting chat data to ${sharedSub?.clients.size || 0} WS clients, ${sharedSub?.listeners.size || 0} IPC listeners:`, data.type || "no-type")
               // Broadcast to all WebSocket clients subscribed to this subChat
               if (sharedSub) {
-                for (const clientWs of sharedSub.clients) {
+                for (const [clientWs, subId] of sharedSub.clients) {
                   send(clientWs, {
-                    id: null,
+                    id: subId,
                     type: "subscription",
                     data: data,
                   })
@@ -607,9 +607,9 @@ async function handleMessage(
             error: (err: any) => {
               console.error(`[WS] Chat subscription error:`, err)
               if (sharedSub) {
-                for (const clientWs of sharedSub.clients) {
+                for (const [clientWs, subId] of sharedSub.clients) {
                   send(clientWs, {
-                    id: null,
+                    id: subId,
                     type: "error",
                     error: err.message,
                   })
@@ -626,9 +626,9 @@ async function handleMessage(
             complete: () => {
               console.log(`[WS] Chat subscription complete for ${subChatId}`)
               if (sharedSub) {
-                for (const clientWs of sharedSub.clients) {
+                for (const [clientWs, subId] of sharedSub.clients) {
                   send(clientWs, {
-                    id: null,
+                    id: subId,
                     type: "result",
                     data: { completed: true },
                   })
@@ -650,14 +650,14 @@ async function handleMessage(
           sharedSub = {
             observable,
             subscription,
-            clients: new Set(),
+            clients: new Map(),
             listeners: existingListeners,
           }
           sharedChatSubscriptions.set(subChatId, sharedSub)
         }
 
-        // Add this client to the shared subscription
-        sharedSub.clients.add(ws)
+        // Add this client to the shared subscription with their subscription ID
+        sharedSub.clients.set(ws, message.id)
         console.log(`[WS] Client added to shared subscription ${subChatId}. Total clients: ${sharedSub.clients.size}`)
 
         // Send success response
@@ -690,9 +690,9 @@ async function handleMessage(
         getWindow: () => BrowserWindow.getFocusedWindow(),
       })
 
-      // Navigate to the procedure using the router directly (caller may not expose nested routers)
-      // Handle nested paths like "external.getAppVersion" or "projects.list"
-      let current: any = router
+      // Navigate to the procedure using the caller
+      // Handle nested paths like "external.getAppVersion" or "projects.list" or "chats.list"
+      let current: any = caller
 
       for (let i = 0; i < pathParts.length - 1; i++) {
         current = current[pathParts[i]]

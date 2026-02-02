@@ -116,9 +116,16 @@ function connect(): Promise<void> {
             console.error("[ws-link] Subscription error:", message.id, message.error)
             subHandler.onError(new Error(message.error || "Subscription error"))
           } else if (message.type === "result") {
-            console.log("[ws-link] Subscription complete:", message.id)
-            subHandler.onComplete()
-            subscriptionHandlers.delete(message.id)
+            // Check if this is the actual completion or just the initial subscription confirmation
+            const resultData = message.data as { completed?: boolean; subscribed?: boolean } | undefined
+            if (resultData?.completed) {
+              console.log("[ws-link] Subscription complete:", message.id)
+              subHandler.onComplete()
+              subscriptionHandlers.delete(message.id)
+            } else if (resultData?.subscribed) {
+              // Initial subscription confirmation - keep the handler active
+              console.log("[ws-link] Subscription confirmed:", message.id)
+            }
           }
           return
         }

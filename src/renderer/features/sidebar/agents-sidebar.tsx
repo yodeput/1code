@@ -1873,10 +1873,18 @@ export function AgentsSidebar({
   }, [])
 
   // Fetch all local chats (no project filter)
-  const { data: localChats } = trpc.chats.list.useQuery(
+  const { data: localChats, isLoading: isChatsLoading, error: chatsError } = trpc.chats.list.useQuery(
+    {}, // empty input
     // Poll every 5 seconds in remote mode to sync with desktop changes
     isRemoteMode ? { refetchInterval: 5000 } : {},
   )
+
+  // Debug: Log chat data in remote mode
+  useEffect(() => {
+    if (isRemoteMode) {
+      console.log('[AgentsSidebar] Remote mode - localChats:', localChats, 'isLoading:', isChatsLoading, 'error:', chatsError)
+    }
+  }, [isRemoteMode, localChats, isChatsLoading, chatsError])
 
   // Fetch user's teams (same as web) - always enabled to allow merged list
   const { data: teams, isLoading: isTeamsLoading, isError: isTeamsError } = useUserTeams(true)
@@ -2019,6 +2027,7 @@ export function AgentsSidebar({
 
   // Fetch all projects for git info
   const { data: projects } = trpc.projects.list.useQuery(
+    undefined, // no input
     // Poll every 5 seconds in remote mode to sync with desktop changes
     isRemoteMode ? { refetchInterval: 5000 } : undefined,
   )
@@ -2034,6 +2043,7 @@ export function AgentsSidebar({
 
   // Fetch all archived chats (to get count)
   const { data: archivedChats } = trpc.chats.listArchived.useQuery(
+    undefined, // no input
     // Poll every 5 seconds in remote mode to sync with desktop changes
     isRemoteMode ? { refetchInterval: 5000 } : {},
   )
