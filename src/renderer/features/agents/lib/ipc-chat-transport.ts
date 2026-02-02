@@ -562,15 +562,6 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
             // Already closed
           }
         })
-          console.log(`[SD] R:ABORT sub=${subId} n=${chunkCount} last=${lastChunkType}`)
-          sub.unsubscribe()
-          // trpcClient.claude.cancel.mutate({ subChatId: this.config.subChatId })
-          try {
-            controller.close()
-          } catch {
-            // Already closed
-          }
-        })
       },
     })
   }
