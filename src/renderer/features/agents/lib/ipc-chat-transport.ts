@@ -217,7 +217,14 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
 
     // Read active profile config (from profile system, supports multiple profiles)
     // Override the model in customConfig with the selected model from profile
-    const baseCustomConfig = appStore.get(activeConfigAtom)
+    let baseCustomConfig: any
+    try {
+      baseCustomConfig = appStore.get(activeConfigAtom)
+      console.log('[IPC Transport] baseCustomConfig:', baseCustomConfig ? 'FOUND' : 'NOT FOUND', baseCustomConfig)
+    } catch (error) {
+      console.error('[IPC Transport] ERROR getting activeConfigAtom:', error)
+      baseCustomConfig = undefined
+    }
     const customConfig = baseCustomConfig && modelString
       ? { ...baseCustomConfig, model: modelString }
       : baseCustomConfig

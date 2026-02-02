@@ -553,7 +553,7 @@ export const claudeRouter = router({
         customConfig: z
           .object({
             model: z.string().min(1),
-            token: z.string().min(1),
+            token: z.string().optional(), // Token can be empty for proxy configs
             baseUrl: z.string().min(1),
             // Additional model configuration (optional)
             defaultOpusModel: z.string().optional(),
