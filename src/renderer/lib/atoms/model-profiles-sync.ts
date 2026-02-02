@@ -3,9 +3,8 @@ import { useEffect, useState } from "react"
 import { trpc } from "../../lib/trpc"
 import {
   localStorageModelProfilesAtom,
-  OFFLINE_PROFILE,
-  type ModelProfile,
 } from "./index"
+import { OFFLINE_PROFILE, type ModelProfile } from "./model-profile-types"
 import { isRemoteMode } from "../remote-transport"
 
 /**

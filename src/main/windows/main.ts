@@ -16,6 +16,7 @@ import { getAuthManager, handleAuthCode, getBaseUrl } from "../index"
 import { registerGitWatcherIPC } from "../lib/git/watcher"
 import { registerThemeScannerIPC } from "../lib/vscode-theme-scanner"
 import { windowManager } from "./window-manager"
+import { subscribeToChatData } from "../lib/remote-access/ws-server"
 
 // Helper to get window from IPC event
 function getWindowFromEvent(
@@ -474,7 +475,6 @@ function registerIpcHandlers(): void {
   // Chat data sync - subscribe to broadcasts from WebSocket server
   // This allows desktop clients to receive messages from web clients
   ipcMain.handle("chat:subscribe", (event, subChatId: string) => {
-    const { subscribeToChatData } = require("../lib/remote-access/ws-server")
     const unsubscribe = subscribeToChatData(subChatId, (data: any) => {
       // Send chat data to this renderer process
       event.sender.send("chat:data", subChatId, data)

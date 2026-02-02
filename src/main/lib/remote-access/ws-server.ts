@@ -690,9 +690,9 @@ async function handleMessage(
         getWindow: () => BrowserWindow.getFocusedWindow(),
       })
 
-      // Navigate the caller to find the procedure
+      // Navigate to the procedure using the router directly (caller may not expose nested routers)
       // Handle nested paths like "external.getAppVersion" or "projects.list"
-      let current: any = caller
+      let current: any = router
 
       for (let i = 0; i < pathParts.length - 1; i++) {
         current = current[pathParts[i]]

@@ -1,6 +1,12 @@
 import { atom } from "jotai"
 import { atomWithStorage } from "jotai/utils"
 import { desktopViewAtom as _desktopViewAtom } from "../../features/agents/atoms"
+import {
+  type ModelProfile,
+  OFFLINE_PROFILE,
+  type CustomClaudeConfig,
+  type ModelMapping,
+} from "./model-profile-types"
 
 // ============================================
 // RE-EXPORT FROM FEATURES/AGENTS/ATOMS (source of truth)
@@ -204,33 +210,8 @@ export const agentsSettingsDialogOpenAtom = atom(
   }
 )
 
-export type CustomClaudeConfig = {
-  model: string
-  token: string
-  baseUrl: string
-  // Additional model configuration (optional)
-  defaultOpusModel?: string // ANTHROPIC_DEFAULT_OPUS_MODEL
-  defaultSonnetModel?: string // ANTHROPIC_DEFAULT_SONNET_MODEL
-  defaultHaikuModel?: string // ANTHROPIC_DEFAULT_HAIKU_MODEL
-  subagentModel?: string // CLAUDE_CODE_SUBAGENT_MODEL
-}
-
-// Model mapping within a profile - maps display names to actual model IDs
-export type ModelMapping = {
-  id: string           // Internal reference ID (e.g., "opus", "sonnet", "haiku")
-  displayName: string  // User-facing name (e.g., "Opus", "Sonnet 3.5")
-  modelId: string      // Actual model ID sent to API (e.g., "glm-4.7", "claude-3-opus-20240229")
-  supportsThinking?: boolean  // Whether this model supports extended thinking
-}
-
-// Model profile system - support multiple configs
-export type ModelProfile = {
-  id: string
-  name: string
-  config: CustomClaudeConfig
-  models: ModelMapping[]  // Available models for this profile
-  isOffline?: boolean // Mark as offline/Ollama profile
-}
+// Re-export from model-profile-types.ts for convenience
+export { CustomClaudeConfig, ModelMapping, ModelProfile, OFFLINE_PROFILE } from "./model-profile-types"
 
 // Selected Ollama model for offline mode
 export const selectedOllamaModelAtom = atomWithStorage<string | null>(
@@ -259,26 +240,6 @@ export const getOfflineProfile = (modelName?: string | null): ModelProfile => ({
     },
   ],
 })
-
-// Predefined offline profile for Ollama (legacy, uses default model)
-export const OFFLINE_PROFILE: ModelProfile = {
-  id: 'offline-ollama',
-  name: 'Offline (Ollama)',
-  isOffline: true,
-  config: {
-    model: 'qwen2.5-coder:7b',
-    token: 'ollama',
-    baseUrl: 'http://localhost:11434',
-  },
-  models: [
-    {
-      id: 'default',
-      displayName: 'Default',
-      modelId: 'qwen2.5-coder:7b',
-      supportsThinking: false,
-    },
-  ],
-}
 
 // Legacy single config (deprecated, kept for backwards compatibility)
 export const customClaudeConfigAtom = atomWithStorage<CustomClaudeConfig>(
