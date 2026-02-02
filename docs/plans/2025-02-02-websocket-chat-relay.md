@@ -877,21 +877,117 @@ git commit -m "refactor: use remote data store in UI"
 
 ---
 
-## Task 10: Remove Old tRPC Usage from Web
+## Task 10: Remove tRPC Functions from Web App
 
 **Files:**
 - Modify: `src/renderer/lib/trpc.ts`
 - Modify: `src/renderer/contexts/TRPCProvider.tsx`
+- Modify: `src/renderer/features/sidebar/agents-sidebar.tsx`
+- Modify: `src/renderer/features/agents/ui/agents-content.tsx`
 
-**Step 1: Remove wsLink from tRPC client for web**
+**Step 1: Remove wsLink from tRPC client configuration**
 
-Web mode should only use WebSocket transport, not tRPC. Desktop keeps tRPC for IPC.
+In `src/renderer/lib/trpc.ts`, conditionally add wsLink only for desktop:
 
-**Step 2: Commit**
+```typescript
+import { wsLink } from "./remote-transport/ws-link"
+
+// In createTRPCClient(), only add wsLink for desktop
+const links = []
+
+// Always add HTTP link (for desktop IPC and web initial load)
+links.push(httpBatchLink)
+
+// Only add WebSocket link for desktop (web uses WebSocket transport directly)
+if (isDesktopApp) {
+  links.push(wsLink())
+}
+
+export const trpcClient = createTRPCClient<AppRouter>({
+  links,
+})
+```
+
+**Step 2: Remove tRPC queries from web sidebar**
+
+In `src/renderer/features/sidebar/agents-sidebar.tsx`, remove tRPC queries for remote mode:
+
+```typescript
+import { useRemoteDataStore } from "@/lib/stores/remote-data-store"
+import { isDesktopApp } from "@/lib/utils/platform"
+
+export function AgentsSidebar() {
+  const isRemoteMode = !isDesktopApp()
+
+  // Desktop: use tRPC queries
+  // Web: use remote data store (populated via WebSocket)
+  const { projects, loadInitialData } = useRemoteDataStore()
+
+  const { data: localProjects } = trpc.projects.list.useQuery(
+    undefined,
+    // Only enable tRPC query for desktop
+    { enabled: isDesktopApp }
+  )
+
+  // Use appropriate data source
+  const projects = isDesktopApp ? localProjects : remoteProjects
+
+  useEffect(() => {
+    // Load initial data from WebSocket for web
+    if (isRemoteMode) {
+      loadInitialData()
+    }
+  }, [isRemoteMode, loadInitialData])
+
+  // ... rest of component
+}
+```
+
+**Step 3: Remove tRPC queries from agents content**
+
+In `src/renderer/features/agents/ui/agents-content.tsx`:
+
+```typescript
+// Only use tRPC for desktop
+const { data: projects } = trpc.projects.list.useQuery(
+  undefined,
+  { enabled: isDesktopApp() }
+)
+
+// For web, data comes from remoteDataStore
+```
+
+**Step 4: Update TRPCProvider to handle web mode**
+
+In `src/renderer/contexts/TRPCProvider.tsx`:
+
+```typescript
+// Ensure tRPC provider still works for desktop IPC
+// Web mode won't use tRPC queries, but provider should still be available
+// for any shared types/utilities
+```
+
+**Step 5: Verify no remaining tRPC calls in web mode**
+
+Search for remaining tRPC usage:
+```bash
+grep -r "trpc\." src/renderer/features --include="*.tsx" --include="*.ts"
+```
+
+All usages should be guarded with `isDesktopApp()` check.
+
+**Step 6: Commit**
 
 ```bash
 git add src/renderer/lib/trpc.ts
-git commit -m "refactor: remove tRPC WebSocket from web mode"
+git add src/renderer/contexts/TRPCProvider.tsx
+git add src/renderer/features/sidebar/agents-sidebar.tsx
+git add src/renderer/features/agents/ui/agents-content.tsx
+git commit -m "refactor: remove tRPC queries from web mode
+
+- WebSocket transport handles all data for web
+- Desktop continues using tRPC for IPC
+- All web data flows through push-based WebSocket protocol"
 ```
 
 ---
