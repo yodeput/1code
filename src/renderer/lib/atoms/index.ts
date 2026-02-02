@@ -302,13 +302,20 @@ export const openaiApiKeyAtom = atomWithStorage<string>(
   { getOnInit: true },
 )
 
-// New: Model profiles storage
-export const modelProfilesAtom = atomWithStorage<ModelProfile[]>(
+// New: Model profiles storage (localStorage-based for desktop)
+// Renamed to localStorageModelProfilesAtom - use modelProfilesAtom from model-profiles-sync.ts instead
+export const localStorageModelProfilesAtom = atomWithStorage<ModelProfile[]>(
   "agents:model-profiles",
   [OFFLINE_PROFILE], // Start with offline profile
   undefined,
   { getOnInit: true },
 )
+
+// Re-export the database-synced model profiles atom
+// This atom automatically handles:
+// - Desktop mode: Uses localStorage, syncs to database
+// - Web mode: Loads from database via tRPC
+export { modelProfilesAtom, useSyncModelProfiles } from "./model-profiles-sync"
 
 // Migration: add models array to existing profiles that don't have it
 if (typeof window !== "undefined") {
@@ -425,10 +432,18 @@ export const activeConfigAtom = atom((get) => {
   const networkOnline = get(networkOnlineAtom)
   const autoOffline = get(autoOfflineModeAtom)
 
+  console.log('[activeConfigAtom] Debug:', {
+    activeProfileId,
+    profilesCount: profiles.length,
+    legacyConfigModel: legacyConfig.model,
+    legacyConfigBaseUrl: legacyConfig.baseUrl,
+  })
+
   // If auto-offline enabled and no internet, use offline profile
   if (!networkOnline && autoOffline) {
     const offlineProfile = profiles.find(p => p.isOffline)
     if (offlineProfile) {
+      console.log('[activeConfigAtom] Using offline profile')
       return offlineProfile.config
     }
   }
@@ -437,16 +452,21 @@ export const activeConfigAtom = atom((get) => {
   if (activeProfileId) {
     const profile = profiles.find(p => p.id === activeProfileId)
     if (profile) {
+      console.log('[activeConfigAtom] Using profile:', profile.name, 'with model:', profile.config.model)
       return profile.config
+    } else {
+      console.log('[activeConfigAtom] Profile ID set but not found in profiles')
     }
   }
 
   // Fallback to legacy config if set
   const normalized = normalizeCustomClaudeConfig(legacyConfig)
   if (normalized) {
+    console.log('[activeConfigAtom] Using normalized legacy config')
     return normalized
   }
 
+  console.log('[activeConfigAtom] No custom config found, returning undefined')
   // No custom config
   return undefined
 })
@@ -803,6 +823,17 @@ export const updateInfoAtom = atom<UpdateInfo | null>(null)
 // Whether app is running in Electron desktop environment
 export const isDesktopAtom = atom<boolean>(false)
 
+// Whether app is running in remote mode (web browser, not desktop)
+// In remote mode, certain desktop-only features should be hidden
+export const isRemoteModeAtom = atom<boolean>(() => {
+  // Check if running in remote mode (no desktopApi or has remote auth token)
+  if (typeof window === "undefined") return false
+  // If we have a stored remote auth PIN, we're in remote mode
+  if (sessionStorage.getItem("remote_ws_auth")) return true
+  // If desktopApi is missing, we're in remote mode
+  return !window.desktopApi
+})
+
 // Fullscreen state - null means not initialized yet
 // null = not yet loaded, false = not fullscreen, true = fullscreen
 export const isFullscreenAtom = atom<boolean | null>(null)
@@ -946,3 +977,9 @@ export const mcpApprovalDialogOpenAtom = atom<boolean>(false)
 
 // Pending MCP approvals to show in the dialog
 export const pendingMcpApprovalsAtom = atom<PendingMcpApproval[]>([])
+
+// ============================================
+// REMOTE ACCESS ATOMS
+// ============================================
+
+export * from "./remote-access"

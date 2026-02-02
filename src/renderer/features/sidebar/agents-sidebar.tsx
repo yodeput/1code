@@ -20,6 +20,7 @@ import {
   clearAgentChatSelectionAtom,
   selectedAgentChatsCountAtom,
   isDesktopAtom,
+  isRemoteModeAtom,
   isFullscreenAtom,
   showOfflineModeFeaturesAtom,
   chatSourceModeAtom,
@@ -28,6 +29,7 @@ import {
   showWorkspaceIconAtom,
   betaKanbanEnabledAtom,
   betaAutomationsEnabledAtom,
+  remoteAccessDialogOpenAtom,
 } from "../../lib/atoms"
 import {
   useRemoteChats,
@@ -39,7 +41,7 @@ import {
   useRenameRemoteChat,
 } from "../../lib/hooks/use-remote-chats"
 import { ArchivePopover } from "../agents/ui/archive-popover"
-import { ChevronDown, MoreHorizontal, Columns3, ArrowUpRight } from "lucide-react"
+import { ChevronDown, MoreHorizontal, Columns3, ArrowUpRight, Globe } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 import { remoteTrpc } from "../../lib/remote-trpc"
 // import { useRouter } from "next/navigation" // Desktop doesn't use next/navigation
@@ -1137,6 +1139,26 @@ const ArchiveButton = memo(forwardRef<HTMLButtonElement, React.ButtonHTMLAttribu
 ))
 
 // Isolated Kanban Button - clears selection to show Kanban view
+// Remote Access Button - opens dialog to enable/disable remote access
+const RemoteAccessButton = memo(function RemoteAccessButton() {
+  const setRemoteAccessDialogOpen = useSetAtom(remoteAccessDialogOpenAtom)
+
+  return (
+    <Tooltip delayDuration={500}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => setRemoteAccessDialogOpen(true)}
+          className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
+        >
+          <Globe className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>Remote Access</TooltipContent>
+    </Tooltip>
+  )
+})
+
 const KanbanButton = memo(function KanbanButton() {
   const kanbanEnabled = useAtomValue(betaKanbanEnabledAtom)
   const setSelectedChatId = useSetAtom(selectedAgentChatIdAtom)
@@ -1742,6 +1764,7 @@ export function AgentsSidebar({
 
   // Global desktop/fullscreen state from atoms (initialized in AgentsLayout)
   const isDesktop = useAtomValue(isDesktopAtom)
+  const isRemoteMode = useAtomValue(isRemoteModeAtom)
   const isFullscreen = useAtomValue(isFullscreenAtom)
 
   // Multi-select state
@@ -3469,28 +3492,33 @@ export function AgentsSidebar({
           >
             <div className="flex items-center">
               <div className="flex items-center gap-1">
-                {/* Settings Button */}
-                <Tooltip delayDuration={500}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSettingsActiveTab("preferences")
-                        setSettingsDialogOpen(true)
-                      }}
-                      className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
-                    >
-                      <SettingsIcon className="h-4 w-4" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Settings{settingsHotkey && <> <Kbd>{settingsHotkey}</Kbd></>}</TooltipContent>
-                </Tooltip>
+                {/* Settings Button - hide in remote mode */}
+                {!isRemoteMode && (
+                  <Tooltip delayDuration={500}>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSettingsActiveTab("preferences")
+                          setSettingsDialogOpen(true)
+                        }}
+                        className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
+                      >
+                        <SettingsIcon className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Settings{settingsHotkey && <> <Kbd>{settingsHotkey}</Kbd></>}</TooltipContent>
+                  </Tooltip>
+                )}
 
                 {/* Help Button - isolated component to prevent sidebar re-renders */}
                 <HelpSection isMobile={isMobileFullscreen} />
 
                 {/* Kanban View Button - isolated component */}
                 <KanbanButton />
+
+                {/* Remote Access Button - hide in remote mode */}
+                {!isRemoteMode && <RemoteAccessButton />}
 
                 {/* Archive Button - isolated component to prevent sidebar re-renders */}
                 <ArchiveSection archivedChatsCount={archivedChatsCount} />
