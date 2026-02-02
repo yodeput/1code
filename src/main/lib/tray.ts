@@ -153,7 +153,12 @@ export async function buildTrayMenu(): Promise<void> {
     let windows = getAllWindows()
     let window = windows.find(w => !w.isDestroyed())
 
-    // If no window, create a hidden one to read localStorage
+    // First try to get the main window by ID
+    if (!window) {
+      window = getWindow()
+    }
+
+    // If still no window, create one temporarily
     let createdHiddenWindow = false
     if (!window) {
       console.log("[Tray] No window available, creating hidden window to read profiles")

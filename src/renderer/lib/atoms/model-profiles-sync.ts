@@ -3,9 +3,26 @@ import { useEffect, useState } from "react"
 import { trpc } from "../../lib/trpc"
 import {
   localStorageModelProfilesAtom,
+  activeProfileIdAtom,
+  customClaudeConfigAtom,
+  networkOnlineAtom,
+  autoOfflineModeAtom,
 } from "./index"
-import { OFFLINE_PROFILE, type ModelProfile } from "./index"
+import { OFFLINE_PROFILE, type ModelProfile, type CustomClaudeConfig } from "./index"
 import { isRemoteMode } from "../remote-transport"
+
+// Helper to normalize custom config (moved from index.ts to break circular dependency)
+function normalizeCustomClaudeConfig(
+  config: CustomClaudeConfig,
+): CustomClaudeConfig | undefined {
+  const model = config.model.trim()
+  const token = config.token.trim()
+  const baseUrl = config.baseUrl.trim()
+
+  if (!model || !token || !baseUrl) return undefined
+
+  return { model, token, baseUrl }
+}
 
 /**
  * Database-synced model profiles atom
@@ -151,3 +168,56 @@ export const modelProfilesAtom = atom(
     set(localStorageModelProfilesAtom, newValue)
   }
 )
+
+/**
+ * Get active config (considering network status and auto-fallback)
+ * - If auto-offline enabled and no internet, use offline profile
+ * - If specific profile is selected, use it
+ * - Fallback to legacy config if set
+ * - Returns undefined if no custom config found
+ */
+export const activeConfigAtom = atom((get) => {
+  const activeProfileId = get(activeProfileIdAtom)
+  const profiles = get(modelProfilesAtom)
+  const legacyConfig = get(customClaudeConfigAtom)
+  const networkOnline = get(networkOnlineAtom)
+  const autoOffline = get(autoOfflineModeAtom)
+
+  console.log('[activeConfigAtom] Debug:', {
+    activeProfileId,
+    profilesCount: profiles.length,
+    legacyConfigModel: legacyConfig.model,
+    legacyConfigBaseUrl: legacyConfig.baseUrl,
+  })
+
+  // If auto-offline enabled and no internet, use offline profile
+  if (!networkOnline && autoOffline) {
+    const offlineProfile = profiles.find(p => p.isOffline)
+    if (offlineProfile) {
+      console.log('[activeConfigAtom] Using offline profile')
+      return offlineProfile.config
+    }
+  }
+
+  // If specific profile is selected, use it
+  if (activeProfileId) {
+    const profile = profiles.find(p => p.id === activeProfileId)
+    if (profile) {
+      console.log('[activeConfigAtom] Using profile:', profile.name, 'with model:', profile.config.model)
+      return profile.config
+    } else {
+      console.log('[activeConfigAtom] Profile ID set but not found in profiles')
+    }
+  }
+
+  // Fallback to legacy config if set
+  const normalized = normalizeCustomClaudeConfig(legacyConfig)
+  if (normalized) {
+    console.log('[activeConfigAtom] Using normalized legacy config')
+    return normalized
+  }
+
+  console.log('[activeConfigAtom] No custom config found, returning undefined')
+  // No custom config
+  return undefined
+})

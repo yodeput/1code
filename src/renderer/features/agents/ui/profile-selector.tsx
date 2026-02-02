@@ -19,6 +19,7 @@ import {
 } from "../../../lib/atoms"
 import { trpc } from "../../../lib/trpc"
 import { cn } from "../../../lib/utils"
+import { isRemoteMode } from "../../../lib/remote-transport"
 
 interface ProfileSelectorProps {
   chatId: string
@@ -70,14 +71,21 @@ export function ProfileSelector({
   )
 
   const handleOpenSettings = useCallback(() => {
+    // In web mode, settings dialog is not available
+    if (isRemoteMode()) {
+      console.log("[ProfileSelector] Settings not available in web mode")
+      return
+    }
     setSettingsTab("models")
     setSettingsOpen(true)
   }, [setSettingsTab, setSettingsOpen])
 
-  // Don't show if no custom profiles configured
-  if (displayProfiles.length === 0) {
-    return null
-  }
+  // For web app or when no custom profiles: show "Default" option
+  // This ensures the selector is always visible in remote/web mode
+  const showDefaultOption = displayProfiles.length === 0 || isRemoteMode()
+
+  // In web mode, hide the "Manage Profiles" option since settings dialog is desktop-only
+  const showManageOption = !isRemoteMode()
 
   return (
     <DropdownMenu>
@@ -97,6 +105,20 @@ export function ProfileSelector({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-[200px]">
+        {/* Show "Default" option for web app or when no custom profiles */}
+        {showDefaultOption && (
+          <DropdownMenuItem
+            onClick={() => {
+              // Clear the profile to use default
+              updateProfileMutation.mutate({ id: chatId, modelProfileId: null })
+              setLastUsedProfileId("")
+            }}
+            className="gap-2 justify-between"
+          >
+            <span className="truncate">Default</span>
+            {!effectiveProfileId && <CheckIcon className="h-3.5 w-3.5 shrink-0" />}
+          </DropdownMenuItem>
+        )}
         {displayProfiles.map((profile) => {
           const isSelected = profile.id === effectiveProfileId
           return (
@@ -110,11 +132,13 @@ export function ProfileSelector({
             </DropdownMenuItem>
           )
         })}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handleOpenSettings} className="gap-2">
-          <Settings className="h-3.5 w-3.5" />
-          <span>Manage Profiles...</span>
-        </DropdownMenuItem>
+        {showDefaultOption && displayProfiles.length > 0 && <DropdownMenuSeparator />}
+        {showManageOption && (
+          <DropdownMenuItem onClick={handleOpenSettings} className="gap-2">
+            <Settings className="h-3.5 w-3.5" />
+            <span>Manage Profiles...</span>
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

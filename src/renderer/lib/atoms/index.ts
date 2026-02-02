@@ -313,7 +313,7 @@ export const localStorageModelProfilesAtom = atomWithStorage<ModelProfile[]>(
 // This atom automatically handles:
 // - Desktop mode: Uses localStorage, syncs to database
 // - Web mode: Loads from database via tRPC
-export { modelProfilesAtom, useSyncModelProfiles } from "./model-profiles-sync"
+export { modelProfilesAtom, useSyncModelProfiles, activeConfigAtom } from "./model-profiles-sync"
 
 // Migration: add models array to existing profiles that don't have it
 if (typeof window !== "undefined") {
@@ -409,65 +409,6 @@ export const showOfflineModeFeaturesAtom = atomWithStorage<boolean>(
 
 // Network status (updated from main process)
 export const networkOnlineAtom = atom<boolean>(true)
-
-export function normalizeCustomClaudeConfig(
-  config: CustomClaudeConfig,
-): CustomClaudeConfig | undefined {
-  const model = config.model.trim()
-  const token = config.token.trim()
-  const baseUrl = config.baseUrl.trim()
-
-  if (!model || !token || !baseUrl) return undefined
-
-  return { model, token, baseUrl }
-}
-
-// Get active config (considering network status and auto-fallback)
-export const activeConfigAtom = atom((get) => {
-  const activeProfileId = get(activeProfileIdAtom)
-  const profiles = get(modelProfilesAtom)
-  const legacyConfig = get(customClaudeConfigAtom)
-  const networkOnline = get(networkOnlineAtom)
-  const autoOffline = get(autoOfflineModeAtom)
-
-  console.log('[activeConfigAtom] Debug:', {
-    activeProfileId,
-    profilesCount: profiles.length,
-    legacyConfigModel: legacyConfig.model,
-    legacyConfigBaseUrl: legacyConfig.baseUrl,
-  })
-
-  // If auto-offline enabled and no internet, use offline profile
-  if (!networkOnline && autoOffline) {
-    const offlineProfile = profiles.find(p => p.isOffline)
-    if (offlineProfile) {
-      console.log('[activeConfigAtom] Using offline profile')
-      return offlineProfile.config
-    }
-  }
-
-  // If specific profile is selected, use it
-  if (activeProfileId) {
-    const profile = profiles.find(p => p.id === activeProfileId)
-    if (profile) {
-      console.log('[activeConfigAtom] Using profile:', profile.name, 'with model:', profile.config.model)
-      return profile.config
-    } else {
-      console.log('[activeConfigAtom] Profile ID set but not found in profiles')
-    }
-  }
-
-  // Fallback to legacy config if set
-  const normalized = normalizeCustomClaudeConfig(legacyConfig)
-  if (normalized) {
-    console.log('[activeConfigAtom] Using normalized legacy config')
-    return normalized
-  }
-
-  console.log('[activeConfigAtom] No custom config found, returning undefined')
-  // No custom config
-  return undefined
-})
 
 // Preferences - Extended Thinking
 // When enabled, Claude will use extended thinking for deeper reasoning (128K tokens)

@@ -110,7 +110,7 @@ export function ApiKeyOnboardingPage() {
   }
 
   // Submit for custom model mode (all fields)
-  const submitCustomModel = () => {
+  const submitCustomModel = async () => {
     const trimmedModel = model.trim()
     const trimmedToken = token.trim()
     const trimmedBaseUrl = baseUrl.trim()
@@ -129,24 +129,57 @@ export function ApiKeyOnboardingPage() {
       defaultHaikuModel: defaultHaikuModel.trim() || undefined,
       subagentModel: subagentModel.trim() || undefined,
     }
-    
+
+    // Build ModelMapping array from config (unique, non-empty model IDs)
+    const modelMappings: Array<{ id: string; displayName: string; modelId: string; supportsThinking: boolean }> = []
+
+    const addModel = (id: string, displayName: string, modelId: string) => {
+      if (modelId) {
+        modelMappings.push({ id, displayName, modelId, supportsThinking: false })
+      }
+    }
+
+    // Add default model
+    addModel("default", "Default", trimmedModel)
+
+    // Add optional models
+    if (defaultOpusModel.trim()) addModel("opus", "Opus", defaultOpusModel.trim())
+    if (defaultSonnetModel.trim()) addModel("sonnet", "Sonnet", defaultSonnetModel.trim())
+    if (defaultHaikuModel.trim()) addModel("haiku", "Haiku", defaultHaikuModel.trim())
+    if (subagentModel.trim()) addModel("subagent", "Subagent", subagentModel.trim())
+
     // Save to legacy config atom
     setStoredConfig(config)
-    
-    // Also create a profile in modelProfilesAtom so it shows in settings
+
+    // Create profile data for database and localStorage
+    const profileData = {
+      name: "Default",
+      config,
+      models: modelMappings,
+      isOffline: false,
+    }
+
+    // Save to database (works in both desktop and remote mode)
+    try {
+      await trpc.modelProfiles.create.mutate(profileData)
+      console.log("[ApiKeyOnboarding] Created Default profile in database")
+    } catch (error) {
+      console.error("[ApiKeyOnboarding] Failed to save profile to database:", error)
+    }
+
+    // Also create a profile in modelProfilesAtom so it shows in settings immediately
     const newProfileId = crypto.randomUUID()
     const newProfile = {
       id: newProfileId,
-      name: "Default", // Saved as Default as requested
-      config,
+      ...profileData,
     }
-    
+
     // Add new profile (keep existing profiles like offline profile)
     setProfiles([...profiles, newProfile])
-    
+
     // Set as active profile
     setActiveProfileId(newProfileId)
-    
+
     setApiKeyOnboardingCompleted(true)
 
     setIsSubmitting(false)

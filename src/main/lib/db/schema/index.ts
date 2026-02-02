@@ -131,6 +131,35 @@ export const anthropicSettings = sqliteTable("anthropic_settings", {
   ),
 })
 
+// ============ MODEL PROFILES ============
+// Stores model profiles for Claude API configuration
+// Allows syncing profiles between desktop and web app
+export const modelProfiles = sqliteTable("model_profiles", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  name: text("name").notNull(),
+  // JSON string of CustomClaudeConfig (model, token, baseUrl, etc.)
+  config: text("config").notNull(),
+  // JSON string of ModelMapping[] (available models in this profile)
+  models: text("models").notNull().default("[]"),
+  // Whether this is an offline/Ollama profile
+  isOffline: integer("is_offline", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
+    () => new Date(),
+  ),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
+    () => new Date(),
+  ),
+})
+
+// Settings for model profiles (stores last used profile ID, etc.)
+export const modelProfileSettings = sqliteTable("model_profile_settings", {
+  id: text("id").primaryKey().default("singleton"), // Single row
+  lastUsedProfileId: text("last_used_profile_id"), // References modelProfiles.id
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
+    () => new Date(),
+  ),
+})
+
 // ============ TYPE EXPORTS ============
 export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert
@@ -143,3 +172,7 @@ export type NewClaudeCodeCredential = typeof claudeCodeCredentials.$inferInsert
 export type AnthropicAccount = typeof anthropicAccounts.$inferSelect
 export type NewAnthropicAccount = typeof anthropicAccounts.$inferInsert
 export type AnthropicSettings = typeof anthropicSettings.$inferSelect
+export type ModelProfile = typeof modelProfiles.$inferSelect
+export type NewModelProfile = typeof modelProfiles.$inferInsert
+export type ModelProfileSettings = typeof modelProfileSettings.$inferSelect
+export type NewModelProfileSettings = typeof modelProfileSettings.$inferInsert
