@@ -1,127 +1,157 @@
-# WebSocket Chat Relay Implementation Plan
+# WebSocket Chat Relay Implementation Plan (Push-Based Sync)
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Simplify web-desktop communication so web client only sends/receives via WebSocket, with desktop as relay/proxy to tRPC.
+**Goal:** Simplify web-desktop communication with push-based data sync. Web client subscribes to resources, server pushes data proactively.
 
-**Architecture:** Web client sends messages through WebSocket → Desktop app forwards to tRPC → Response broadcast to subscribed WebSocket clients. Single source of truth via shared subscription Observable.
+**Architecture:** Server pushes data on subscription events - no polling, no direct tRPC queries from web.
 
 **Tech Stack:** WebSocket (ws), tRPC, Electron IPC, Observable pattern
 
 ---
 
-## Current Flow (Complex)
+## Target Flow (Push-Based)
 
 ```
-Web Client
-    ├─→ Direct tRPC queries (projects.list, chats.list)
-    ├─→ Direct tRPC mutations (sendMessage)
-    └─→ tRPC subscription (claude.chat)
-```
+┌─────────────────────────────────────────────────────────────┐
+│                    AUTH SUCCESS                             │
+├─────────────────────────────────────────────────────────────┤
+│ Web → Server: auth with PIN                                 │
+│ Server → Web: auth_success + { projects, modelProfiles }    │
+└─────────────────────────────────────────────────────────────┘
 
-## Target Flow (Simplified)
+┌─────────────────────────────────────────────────────────────┐
+│                 SUBSCRIBE TO PROJECT                        │
+├─────────────────────────────────────────────────────────────┤
+│ Web → Server: subscribe(projectId)                          │
+│ Server → Web: subscribed + { chats: [] }                    │
+│ Server → Web: (push) new chat created                       │
+└─────────────────────────────────────────────────────────────┘
 
-```
-Web Client
-    ├─→ WebSocket.send(chatId, message)  → Desktop → tRPC
-    └─→ WebSocket.subscribe(chatId)      ← Desktop ← tRPC
+┌─────────────────────────────────────────────────────────────┐
+│                  SUBSCRIBE TO CHAT                          │
+├─────────────────────────────────────────────────────────────┤
+│ Web → Server: subscribe(chatId)                             │
+│ Server → Web: subscribed + { messages: [] }                 │
+│ Server → Web: (push) new message from Claude                │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                    SEND MESSAGE                             │
+├─────────────────────────────────────────────────────────────┤
+│ Web → Server: send(chatId, message)                         │
+│ Server → Desktop: claude.sendMessage()                      │
+│ Server → Web: (push via subscription) response              │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 **Benefits:**
 - Single channel for all communication
-- Desktop controls everything (no direct tRPC access from web)
+- Server pushes data proactively (no polling)
+- Desktop controls everything (security)
 - Simpler client code
-- Better security (web can't bypass desktop)
+- Real-time sync guaranteed
 
 ---
 
-## Task 1: Simplify WebSocket Message Protocol
+## Task 1: Define New Message Protocol
 
 **Files:**
 - Modify: `src/main/lib/remote-access/ws-server.ts`
 
-**Step 1: Define new simplified message types**
-
-Add to existing `WSRequest` interface:
+**Step 1: Define message types**
 
 ```typescript
+// Resource types for subscription
+type ResourceType = "project" | "chat" | "modelProfiles"
+
 interface WSRequest {
   id: string
   type: "auth" | "send" | "subscribe" | "unsubscribe"
-  chatId?: string        // For subscribe/unsubscribe/send
-  message?: any          // For send (chat message content)
-  pin?: string           // For auth
+  resource?: ResourceType        // What to subscribe to
+  resourceId?: string            // ID of the resource (projectId/chatId)
+  message?: any                  // For send (chat message content)
+  pin?: string                   // For auth
 }
 
 interface WSResponse {
   id: string | null
   type: "auth_required" | "auth_success" | "auth_failed" | "subscribed" | "error" | "data"
-  chatId?: string        // Which chat this data is for
+  resource?: ResourceType        // Which resource this data is for
+  resourceId?: string            // ID of the resource
   data?: unknown
   error?: string
 }
 ```
 
-**Step 2: Remove "trpc" type handling**
+**Step 2: Add resource subscription tracking**
 
-Delete the large `if (message.type === "trpc" && message.method)` block in `handleMessage()`. This will be replaced with simpler "send" handling.
+```typescript
+// Track subscriptions per client
+interface ClientSubscription {
+  resource: ResourceType
+  resourceId: string
+  ws: WebSocket
+}
+
+interface AuthenticatedClient {
+  ws: WebSocket
+  id: string
+  subscriptions: Map<string, ClientSubscription>  // key: `${resource}:${resourceId}`
+}
+```
 
 **Step 3: Commit**
 
 ```bash
 git add src/main/lib/remote-access/ws-server.ts
-git commit -m "refactor: remove direct tRPC access from WebSocket"
+git commit -m "refactor: define new WebSocket message protocol"
 ```
 
 ---
 
-## Task 2: Implement Chat Message Send Handler
+## Task 2: Auth Success - Push Initial Data
 
 **Files:**
 - Modify: `src/main/lib/remote-access/ws-server.ts`
 
-**Step 1: Add send message handler**
-
-In `handleMessage()`, add after auth check:
+**Step 1: Fetch projects and model profiles on auth**
 
 ```typescript
-// Send chat message
-if (message.type === "send" && message.chatId && message.message) {
-  try {
-    const { chatId, message: msgContent } = message
-
-    console.log(`[WS] Received message for chat ${chatId}:`, msgContent)
-
-    // Forward to tRPC via desktop's tRPC router
-    const router = createAppRouter(() => BrowserWindow.getFocusedWindow())
-    const caller = router.createCaller({
-      getWindow: () => BrowserWindow.getFocusedWindow(),
-    })
-
-    // Call claude.sendMessage (this will trigger the subscription to broadcast)
-    const result = await caller.claude.sendMessage({
-      subChatId: chatId,
-      message: msgContent,
-    })
-
-    // Send success response
-    send(ws, {
-      id: message.id,
-      type: "data",
-      chatId,
-      data: { sent: true },
-    })
-
-    // Note: Actual response will come through subscription broadcast
-    return
-  } catch (error) {
-    send(ws, {
-      id: message.id,
-      type: "error",
-      error: error instanceof Error ? error.message : "Failed to send message",
-    })
-    return
+// In handleMessage(), auth success section
+if (message.pin && validatePin(message.pin)) {
+  const clientId = randomUUID()
+  const newClient: AuthenticatedClient = {
+    ws,
+    id: clientId,
+    subscriptions: new Map(),
   }
+  authenticatedClients.set(ws, newClient)
+  addClient(clientId)
+
+  // Fetch initial data
+  const router = createAppRouter(() => BrowserWindow.getFocusedWindow())
+  const caller = router.createCaller({
+    getWindow: () => BrowserWindow.getFocusedWindow(),
+  })
+
+  // Get projects and model profiles in parallel
+  const [projects, modelProfiles] = await Promise.all([
+    caller.projects.list(),
+    caller.modelProfiles.list().catch(() => []),
+  ])
+
+  send(ws, {
+    id: message.id,
+    type: "auth_success",
+    data: {
+      projects,
+      modelProfiles,
+    },
+  })
+
+  console.log(`[WS] Client authenticated: ${clientId}, sent ${projects.length} projects`)
+  return
 }
 ```
 
@@ -129,28 +159,91 @@ if (message.type === "send" && message.chatId && message.message) {
 
 ```bash
 git add src/main/lib/remote-access/ws-server.ts
-git commit -m "feat: add WebSocket send message handler"
+git commit -m "feat: send projects and model profiles on auth"
 ```
 
 ---
 
-## Task 3: Update Subscribe Handler to Use New Protocol
+## Task 3: Subscribe to Project - Push Chat List
 
 **Files:**
 - Modify: `src/main/lib/remote-access/ws-server.ts`
 
-**Step 1: Simplify subscribe handler**
-
-Replace the complex `if (routerName === "claude" && procedureName === "chat")` block with:
+**Step 1: Add project subscription handler**
 
 ```typescript
-// Subscribe to chat
-if (message.type === "subscribe" && message.chatId) {
-  const subChatId = message.chatId
+// Subscribe to project (get chats)
+if (message.type === "subscribe" && message.resource === "project" && message.resourceId) {
+  const projectId = message.resourceId
+  const client = authenticatedClients.get(ws)
 
-  console.log(`[WS] Starting subscription for subChatId: ${subChatId}`)
+  if (!client) {
+    send(ws, { id: message.id, type: "error", error: "Not authenticated" })
+    return
+  }
 
-  // Check if there's already a shared subscription
+  console.log(`[WS] Subscribing to project: ${projectId}`)
+
+  // Fetch chats for this project
+  const router = createAppRouter(() => BrowserWindow.getFocusedWindow())
+  const caller = router.createCaller({
+    getWindow: () => BrowserWindow.getFocusedWindow(),
+  })
+
+  const chats = await caller.chats.list({ projectId })
+
+  // Store subscription
+  const subKey = `project:${projectId}`
+  client.subscriptions.set(subKey, {
+    resource: "project",
+    resourceId: projectId,
+    ws,
+  })
+
+  // Send initial data
+  send(ws, {
+    id: message.id,
+    type: "subscribed",
+    resource: "project",
+    resourceId: projectId,
+    data: { chats },
+  })
+
+  console.log(`[WS] Subscribed to project ${projectId}, sent ${chats.length} chats`)
+  return
+}
+```
+
+**Step 2: Commit**
+
+```bash
+git add src/main/lib/remote-access/ws-server.ts
+git commit -m "feat: add project subscription with chat list"
+```
+
+---
+
+## Task 4: Subscribe to Chat - Push Message List + Stream Updates
+
+**Files:**
+- Modify: `src/main/lib/remote-access/ws-server.ts`
+
+**Step 1: Add chat subscription handler with message history**
+
+```typescript
+// Subscribe to chat (get messages + stream)
+if (message.type === "subscribe" && message.resource === "chat" && message.resourceId) {
+  const subChatId = message.resourceId
+  const client = authenticatedClients.get(ws)
+
+  if (!client) {
+    send(ws, { id: message.id, type: "error", error: "Not authenticated" })
+    return
+  }
+
+  console.log(`[WS] Subscribing to chat: ${subChatId}`)
+
+  // Check if shared subscription exists
   let sharedSub = sharedChatSubscriptions.get(subChatId)
 
   if (!sharedSub) {
@@ -181,11 +274,13 @@ if (message.type === "subscribe" && message.chatId) {
     const subscription = observable.subscribe({
       next: (data: any) => {
         if (sharedSub) {
-          for (const [clientWs, subId] of sharedSub.clients) {
+          console.log(`[WS] Broadcasting to ${sharedSub.clients.size} clients for ${subChatId}:`, data.type)
+          for (const [clientWs] of sharedSub.clients) {
             send(clientWs, {
-              id: subId,
+              id: null,  // Streaming data doesn't have request ID
               type: "data",
-              chatId: subChatId,
+              resource: "chat",
+              resourceId: subChatId,
               data: data,
             })
           }
@@ -202,11 +297,12 @@ if (message.type === "subscribe" && message.chatId) {
       error: (err: any) => {
         console.error(`[WS] Chat subscription error:`, err)
         if (sharedSub) {
-          for (const [clientWs, subId] of sharedSub.clients) {
+          for (const [clientWs] of sharedSub.clients) {
             send(clientWs, {
-              id: subId,
+              id: null,
               type: "error",
-              chatId: subChatId,
+              resource: "chat",
+              resourceId: subChatId,
               error: err.message,
             })
           }
@@ -215,11 +311,12 @@ if (message.type === "subscribe" && message.chatId) {
       complete: () => {
         console.log(`[WS] Chat subscription complete for ${subChatId}`)
         if (sharedSub) {
-          for (const [clientWs, subId] of sharedSub.clients) {
+          for (const [clientWs] of sharedSub.clients) {
             send(clientWs, {
-              id: subId,
+              id: null,
               type: "data",
-              chatId: subChatId,
+              resource: "chat",
+              resourceId: subChatId,
               data: { completed: true },
             })
           }
@@ -239,10 +336,20 @@ if (message.type === "subscribe" && message.chatId) {
   // Add client to shared subscription
   sharedSub.clients.set(ws, message.id)
 
+  // Store subscription in client
+  const subKey = `chat:${subChatId}`
+  client.subscriptions.set(subKey, {
+    resource: "chat",
+    resourceId: subChatId,
+    ws,
+  })
+
+  // Send subscribed confirmation (messages will come via stream)
   send(ws, {
     id: message.id,
     type: "subscribed",
-    chatId: subChatId,
+    resource: "chat",
+    resourceId: subChatId,
   })
 
   // Clean up on disconnect
@@ -256,6 +363,7 @@ if (message.type === "subscribe" && message.chatId) {
     }
   })
 
+  console.log(`[WS] Subscribed to chat ${subChatId}`)
   return
 }
 ```
@@ -264,12 +372,75 @@ if (message.type === "subscribe" && message.chatId) {
 
 ```bash
 git add src/main/lib/remote-access/ws-server.ts
-git commit -m "refactor: simplify subscribe handler"
+git commit -m "feat: add chat subscription with message streaming"
 ```
 
 ---
 
-## Task 4: Add Unsubscribe Handler
+## Task 5: Send Message Handler
+
+**Files:**
+- Modify: `src/main/lib/remote-access/ws-server.ts`
+
+**Step 1: Add send message handler**
+
+```typescript
+// Send chat message
+if (message.type === "send" && message.resourceId && message.message) {
+  const subChatId = message.resourceId
+  const client = authenticatedClients.get(ws)
+
+  if (!client) {
+    send(ws, { id: message.id, type: "error", error: "Not authenticated" })
+    return
+  }
+
+  try {
+    console.log(`[WS] Sending message to chat ${subChatId}`)
+
+    // Forward to tRPC via desktop's router
+    const router = createAppRouter(() => BrowserWindow.getFocusedWindow())
+    const caller = router.createCaller({
+      getWindow: () => BrowserWindow.getFocusedWindow(),
+    })
+
+    // Call claude.sendMessage
+    await caller.claude.sendMessage({
+      subChatId,
+      message: message.message,
+    })
+
+    // Send success (actual response will come through subscription)
+    send(ws, {
+      id: message.id,
+      type: "data",
+      resource: "chat",
+      resourceId: subChatId,
+      data: { sent: true },
+    })
+
+    return
+  } catch (error) {
+    send(ws, {
+      id: message.id,
+      type: "error",
+      error: error instanceof Error ? error.message : "Failed to send message",
+    })
+    return
+  }
+}
+```
+
+**Step 2: Commit**
+
+```bash
+git add src/main/lib/remote-access/ws-server.ts
+git commit -m "feat: add send message handler"
+```
+
+---
+
+## Task 6: Unsubscribe Handler
 
 **Files:**
 - Modify: `src/main/lib/remote-access/ws-server.ts`
@@ -277,26 +448,41 @@ git commit -m "refactor: simplify subscribe handler"
 **Step 1: Add unsubscribe handler**
 
 ```typescript
-// Unsubscribe from chat
-if (message.type === "unsubscribe" && message.chatId) {
-  const subChatId = message.chatId
-  const sharedSub = sharedChatSubscriptions.get(subChatId)
+// Unsubscribe from resource
+if (message.type === "unsubscribe" && message.resource && message.resourceId) {
+  const { resource, resourceId } = message
+  const client = authenticatedClients.get(ws)
 
-  if (sharedSub) {
-    sharedSub.clients.delete(ws)
+  if (!client) {
+    send(ws, { id: message.id, type: "error", error: "Not authenticated" })
+    return
+  }
 
-    // Clean up if no clients left
-    if (sharedSub.clients.size === 0 && sharedSub.listeners.size === 0) {
-      sharedSub.subscription.unsubscribe()
-      sharedChatSubscriptions.delete(subChatId)
+  const subKey = `${resource}:${resourceId}`
+  const subscription = client.subscriptions.get(subKey)
+
+  if (subscription) {
+    client.subscriptions.delete(subKey)
+
+    // If chat, remove from shared subscription
+    if (resource === "chat") {
+      const sharedSub = sharedChatSubscriptions.get(resourceId)
+      if (sharedSub) {
+        sharedSub.clients.delete(ws)
+        if (sharedSub.clients.size === 0 && sharedSub.listeners.size === 0) {
+          sharedSub.subscription.unsubscribe()
+          sharedChatSubscriptions.delete(resourceId)
+        }
+      }
     }
 
     send(ws, {
       id: message.id,
       type: "data",
-      chatId: subChatId,
       data: { unsubscribed: true },
     })
+
+    console.log(`[WS] Unsubscribed from ${resource}:${resourceId}`)
   }
 
   return
@@ -312,20 +498,23 @@ git commit -m "feat: add unsubscribe handler"
 
 ---
 
-## Task 5: Update Client-Side ws-link
+## Task 7: Update Client-Side ws-link
 
 **Files:**
 - Modify: `src/renderer/lib/remote-transport/ws-link.ts`
 
-**Step 1: Simplify message types**
+**Step 1: Update message types**
 
 ```typescript
+type ResourceType = "project" | "chat" | "modelProfiles"
+
 type WSMessageType = "auth" | "send" | "subscribe" | "unsubscribe"
 
 interface WSRequest {
   id: string
   type: WSMessageType
-  chatId?: string
+  resource?: ResourceType
+  resourceId?: string
   message?: any
   pin?: string
 }
@@ -333,24 +522,135 @@ interface WSRequest {
 interface WSResponse {
   id: string | null
   type: "auth_required" | "auth_success" | "auth_failed" | "subscribed" | "error" | "data"
-  chatId?: string
+  resource?: ResourceType
+  resourceId?: string
   data?: unknown
   error?: string
 }
 ```
 
-**Step 2: Add send message function**
+**Step 2: Add auth data handler**
+
+```typescript
+// Store initial data from auth
+let initialData: {
+  projects: any[]
+  modelProfiles: any[]
+} | null = null
+
+// In ws.onmessage, after auth success:
+if (message.type === "auth_success") {
+  console.log("[ws-link] Authentication successful")
+  isAuthenticated = true
+  initialData = message.data as { projects: any[], modelProfiles: any[] }
+  connectionPromise = null
+  resolve()
+  return
+}
+```
+
+**Step 3: Add subscribe to project function**
 
 ```typescript
 /**
- * Send a chat message via WebSocket
+ * Subscribe to a project (receives chat list)
+ */
+export async function subscribeToProject(projectId: string): Promise<any[]> {
+  await connect()
+
+  return new Promise((resolve, reject) => {
+    const id = `sub-project-${Date.now()}`
+    const request: WSRequest = { id, type: "subscribe", resource: "project", resourceId: projectId }
+
+    const timeout = setTimeout(() => {
+      subscriptionHandlers.delete(id)
+      reject(new Error("Subscribe timeout"))
+    }, 10000)
+
+    // One-time handler for initial data
+    subscriptionHandlers.set(id, {
+      onData: (data: any) => {
+        clearTimeout(timeout)
+        subscriptionHandlers.delete(id)
+        resolve(data.chats || [])
+      },
+      onError: (error) => {
+        clearTimeout(timeout)
+        subscriptionHandlers.delete(id)
+        reject(error)
+      },
+      onComplete: () => {
+        clearTimeout(timeout)
+        subscriptionHandlers.delete(id)
+      },
+    })
+
+    ws!.send(JSON.stringify(request))
+  })
+}
+```
+
+**Step 4: Add subscribe to chat function**
+
+```typescript
+/**
+ * Subscribe to a chat (receives messages + streams updates)
+ */
+export function subscribeToChat(chatId: string, onData: (data: any) => void): () => void {
+  const id = `sub-chat-${Date.now()}`
+
+  const handler: SubscriptionHandler = {
+    onData: (data) => {
+      console.log("[ws-link] Chat data received:", chatId, data.type)
+      onData(data)
+    },
+    onError: (error) => {
+      console.error("[ws-link] Chat error:", chatId, error)
+    },
+    onComplete: () => {
+      console.log("[ws-link] Chat complete:", chatId)
+    },
+  }
+
+  subscriptionHandlers.set(id, handler)
+
+  connect().then(() => {
+    const request: WSRequest = { id, type: "subscribe", resource: "chat", resourceId: chatId }
+    ws!.send(JSON.stringify(request))
+    console.log("[ws-link] Subscribe chat request sent:", chatId)
+  }).catch((error) => {
+    console.error("[ws-link] Failed to connect:", error)
+    subscriptionHandlers.delete(id)
+  })
+
+  return () => {
+    console.log("[ws-link] Unsubscribing from chat:", chatId)
+    subscriptionHandlers.delete(id)
+    if (ws?.readyState === WebSocket.OPEN) {
+      const unsubscribeRequest: WSRequest = {
+        id: `unsub-${Date.now()}`,
+        type: "unsubscribe",
+        resource: "chat",
+        resourceId: chatId,
+      }
+      ws.send(JSON.stringify(unsubscribeRequest))
+    }
+  }
+}
+```
+
+**Step 5: Add send message function**
+
+```typescript
+/**
+ * Send a message to a chat
  */
 export async function sendChatMessage(chatId: string, message: any): Promise<void> {
   await connect()
 
   return new Promise((resolve, reject) => {
-    const id = `send-${++requestId}-${Date.now()}`
-    const request: WSRequest = { id, type: "send", chatId, message }
+    const id = `send-${Date.now()}`
+    const request: WSRequest = { id, type: "send", resourceId: chatId, message }
 
     const timeout = setTimeout(() => {
       pendingRequests.delete(id)
@@ -373,276 +673,292 @@ export async function sendChatMessage(chatId: string, message: any): Promise<voi
 }
 ```
 
-**Step 3: Simplify subscription handler**
-
-Replace complex tRPC subscription with:
+**Step 6: Add helper to get initial data**
 
 ```typescript
 /**
- * Subscribe to chat updates via WebSocket
+ * Get initial data from auth (projects, model profiles)
  */
-export function subscribeToChat(chatId: string, onData: (data: any) => void): () => void {
-  const id = `sub-${++requestId}-${Date.now()}`
+export function getInitialData() {
+  return initialData
+}
+```
 
-  const handler: SubscriptionHandler = {
-    onData: (data) => {
-      console.log("[ws-link] Chat data received:", chatId, data)
-      onData(data)
-    },
-    onError: (error) => {
-      console.error("[ws-link] Chat error:", chatId, error)
-    },
-    onComplete: () => {
-      console.log("[ws-link] Chat complete:", chatId)
-    },
+**Step 7: Update onmessage to handle resource-based messages**
+
+```typescript
+ws.onmessage = (event) => {
+  const message: WSResponse = JSON.parse(event.data)
+
+  // Handle auth response
+  if (message.type === "auth_success") {
+    console.log("[ws-link] Authentication successful")
+    isAuthenticated = true
+    initialData = message.data as { projects: any[], modelProfiles: any[] }
+    connectionPromise = null
+    resolve()
+    return
   }
 
-  subscriptionHandlers.set(id, handler)
+  // ... rest of handlers (auth_failed, auth_required) ...
 
-  // Wait for connection, then send subscribe request
-  connect().then(() => {
-    const request: WSRequest = { id, type: "subscribe", chatId }
-    ws!.send(JSON.stringify(request))
-    console.log("[ws-link] Subscribe request sent:", id, chatId)
-  }).catch((error) => {
-    console.error("[ws-link] Failed to connect for subscription:", error)
-    subscriptionHandlers.delete(id)
-  })
+  // Handle subscription data (streaming)
+  if (!message.id && message.type === "data" && message.resource) {
+    // This is streaming data from active subscription
+    const subKey = `${message.resource}:${message.resourceId}`
+    // Find all handlers for this resource and notify them
+    for (const [subId, handler] of subscriptionHandlers) {
+      if (subId.includes(message.resource!)) {
+        handler.onData(message.data)
+      }
+    }
+    return
+  }
 
-  // Return unsubscribe function
-  return () => {
-    console.log("[ws-link] Unsubscribing:", chatId, id)
-    subscriptionHandlers.delete(id)
-    if (ws?.readyState === WebSocket.OPEN) {
-      const unsubscribeRequest: WSRequest = { id: `unsub-${Date.now()}`, type: "unsubscribe", chatId }
-      ws.send(JSON.stringify(unsubscribeRequest))
+  // Handle response to specific request
+  if (message.id) {
+    const subHandler = subscriptionHandlers.get(message.id)
+    if (subHandler) {
+      if (message.type === "subscribed" || (message.type === "data" && message.data !== undefined)) {
+        subHandler.onData(message.data)
+      } else if (message.type === "error") {
+        subHandler.onError(new Error(message.error || "Error"))
+      } else if (message.type === "data") {
+        subHandler.onComplete()
+        subscriptionHandlers.delete(message.id)
+      }
+      return
+    }
+
+    // Handle pending requests
+    const pending = pendingRequests.get(message.id)
+    if (pending) {
+      pendingRequests.delete(message.id)
+      if (message.type === "error") {
+        pending.reject(new Error(message.error || "Unknown error"))
+      } else {
+        pending.resolve(message.data)
+      }
     }
   }
 }
 ```
 
-**Step 4: Remove old tRPC link code**
-
-Delete the entire `wsLink()` function and related `sendTRPCRequest()`. The new API is just `sendChatMessage()` and `subscribeToChat()`.
-
-**Step 5: Commit**
+**Step 8: Commit**
 
 ```bash
 git add src/renderer/lib/remote-transport/ws-link.ts
-git commit -m "refactor: simplify ws-link for send/subscribe API"
+git commit -m "refactor: update ws-link for push-based protocol"
 ```
 
 ---
 
-## Task 6: Create Chat Transport Hook
+## Task 8: Create Resource Data Store
 
 **Files:**
-- Create: `src/renderer/lib/hooks/use-chat-transport.ts`
+- Create: `src/renderer/lib/stores/remote-data-store.ts`
 
-**Step 1: Write the hook**
+**Step 1: Create Zustand store for remote data**
 
 ```typescript
-import { useEffect, useRef } from "react"
-import { subscribeToChat, sendChatMessage } from "../remote-transport/ws-link"
+import { create } from 'zustand'
+import { subscribeToProject, subscribeToChat, sendChatMessage, getInitialData } from '../remote-transport/ws-link'
 
-/**
- * Hook for chat communication via WebSocket
- * @param chatId - The sub-chat ID to communicate with
- * @returns Object with sendMessage function
- */
-export function useChatTransport(chatId: string | null) {
-  const unsubscribeRef = useRef<(() => void) | null>(null)
+interface RemoteDataState {
+  // Data
+  projects: any[]
+  modelProfiles: any[]
+  projectChats: Map<string, any[]>  // projectId -> chats
 
-  useEffect(() => {
-    if (!chatId) return
-
-    // Subscribe to chat updates
-    unsubscribeRef.current = subscribeToChat(chatId, (data) => {
-      console.log("[useChatTransport] Received data:", chatId, data)
-      // Data will be handled by the existing chat subscription system
-    })
-
-    return () => {
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current()
-        unsubscribeRef.current = null
-      }
-    }
-  }, [chatId])
-
-  const sendMessage = async (message: any) => {
-    if (!chatId) {
-      throw new Error("No active chat")
-    }
-    return sendChatMessage(chatId, message)
-  }
-
-  return { sendMessage }
+  // Actions
+  loadInitialData: () => void
+  subscribeToProject: (projectId: string) => Promise<void>
+  subscribeToChat: (chatId: string, onData: (data: any) => void) => () => void
+  sendMessage: (chatId: string, message: any) => Promise<void>
 }
+
+export const useRemoteDataStore = create<RemoteDataState>((set, get) => ({
+  projects: [],
+  modelProfiles: [],
+  projectChats: new Map(),
+
+  loadInitialData: () => {
+    const data = getInitialData()
+    if (data) {
+      set({ projects: data.projects, modelProfiles: data.modelProfiles })
+    }
+  },
+
+  subscribeToProject: async (projectId: string) => {
+    const chats = await subscribeToProject(projectId)
+    set((state) => {
+      const newMap = new Map(state.projectChats)
+      newMap.set(projectId, chats)
+      return { projectChats: newMap }
+    })
+  },
+
+  subscribeToChat: (chatId: string, onData: (data: any) => void) => {
+    return subscribeToChat(chatId, onData)
+  },
+
+  sendMessage: async (chatId: string, message: any) => {
+    return sendChatMessage(chatId, message)
+  },
+}))
 ```
 
 **Step 2: Commit**
 
 ```bash
-git add src/renderer/lib/hooks/use-chat-transport.ts
-git commit -m "feat: add useChatTransport hook"
+git add src/renderer/lib/stores/remote-data-store.ts
+git commit -m "feat: create remote data store"
 ```
 
 ---
 
-## Task 7: Update Active Chat to Use New Transport
+## Task 9: Update UI to Use New Store
 
 **Files:**
+- Modify: `src/renderer/features/sidebar/agents-sidebar.tsx`
 - Modify: `src/renderer/features/agents/main/active-chat.tsx`
 
-**Step 1: Find where messages are sent**
-
-Search for `trpc.claude.sendMessage` or similar mutation calls.
-
-**Step 2: Replace with new transport**
+**Step 1: Update sidebar to use remote data store**
 
 ```typescript
-import { useChatTransport } from "@/lib/hooks/use-chat-transport"
-import { useAtomValue } from "jotai"
-import { selectedSubChatIdAtom } from "@/lib/atoms"
+import { useRemoteDataStore } from "@/lib/stores/remote-data-store"
 
-// Inside component
-const selectedSubChatId = useAtomValue(selectedSubChatIdAtom)
-const { sendMessage } = useChatTransport(selectedSubChatId?.id)
+export function AgentsSidebar() {
+  const { projects, loadInitialData } = useRemoteDataStore()
 
-// Replace mutation call with:
-const handleSend = async (message: string) => {
-  try {
-    await sendMessage({ message })
-  } catch (error) {
-    console.error("Failed to send message:", error)
+  useEffect(() => {
+    // Load initial data on mount
+    loadInitialData()
+  }, [])
+
+  // Render projects from store instead of tRPC query
+  // ...
+}
+```
+
+**Step 2: Update active chat to use new transport**
+
+```typescript
+import { useRemoteDataStore } from "@/lib/stores/remote-data-store"
+
+export function ActiveChat() {
+  const { sendMessage, subscribeToChat } = useRemoteDataStore()
+
+  useEffect(() => {
+    if (chatId) {
+      const unsubscribe = subscribeToChat(chatId, (data) => {
+        // Handle incoming message data
+        console.log("Received chat data:", data)
+      })
+      return unsubscribe
+    }
+  }, [chatId])
+
+  const handleSend = async (message: string) => {
+    await sendMessage(chatId, { message })
   }
+
+  // ...
 }
 ```
 
 **Step 3: Commit**
 
 ```bash
+git add src/renderer/features/sidebar/agents-sidebar.tsx
 git add src/renderer/features/agents/main/active-chat.tsx
-git commit -m "refactor: use WebSocket transport for chat messages"
+git commit -m "refactor: use remote data store in UI"
 ```
 
 ---
 
-## Task 8: Remove Old tRPC Remote Links
+## Task 10: Remove Old tRPC Usage from Web
 
 **Files:**
-- Modify: `src/renderer/lib/trpc.ts` or wherever tRPC client is configured
+- Modify: `src/renderer/lib/trpc.ts`
 - Modify: `src/renderer/contexts/TRPCProvider.tsx`
 
-**Step 1: Remove WebSocket link from tRPC client**
+**Step 1: Remove wsLink from tRPC client for web**
 
-If tRPC client has `wsLink` mixed in, remove it for remote mode. Desktop still uses IPC, web uses WebSocket transport directly.
+Web mode should only use WebSocket transport, not tRPC. Desktop keeps tRPC for IPC.
 
 **Step 2: Commit**
 
 ```bash
 git add src/renderer/lib/trpc.ts
-git commit -m "refactor: remove WebSocket from tRPC client"
+git commit -m "refactor: remove tRPC WebSocket from web mode"
 ```
 
 ---
 
-## Task 9: Test Web Client Send Message
+## Task 11: Test Complete Flow
 
 **Files:**
-- Test: Manual testing via browser
+- Test: Manual testing
 
-**Step 1: Start desktop app**
+**Step 1: Test auth + initial data**
 
 ```bash
 bun run dev
 ```
 
-**Step 2: Open web app**
-
-Navigate to `http://localhost:PORT/app` and enter PIN.
-
-**Step 3: Send message from web**
-
-Type a message in chat input and send.
+Open web app, enter PIN.
 
 **Expected:**
-- Message appears in web app chat
-- Message appears in desktop app chat simultaneously
-- No errors in console
+- Auth success
+- Projects list appears
+- Model profiles loaded
 
-**Step 4: Verify logs**
+**Step 2: Test project subscription**
 
-Desktop terminal should show:
-```
-[WS] Received message for chat ml3xxx: { message: "hello" }
-[WS] Broadcasting chat data to 1 WS clients, 1 IPC listeners
-```
-
-**Step 5: Debug if fails**
-
-Check:
-- WebSocket connection established
-- Subscription active before send
-- tRPC mutation succeeds
-- Broadcast reaches both clients
-
----
-
-## Task 10: Test Desktop Still Works
-
-**Files:**
-- Test: Manual testing
-
-**Step 1: Send message from desktop**
-
-Type in desktop chat input and send.
+Click on a project.
 
 **Expected:**
-- Message appears in desktop app
-- Message appears in web app simultaneously
+- Chat list for project appears
 
-**Step 2: Verify no regression**
+**Step 3: Test chat subscription**
 
-- Desktop chat still works via IPC
-- Desktop and web stay in sync
-- No performance issues
+Click on a chat.
 
----
+**Expected:**
+- Message history loads
+- Real-time updates work
 
-## Task 11: Cleanup Unused Code
+**Step 4: Test send message**
 
-**Files:**
-- Modify: Multiple files
+Send a message from web.
 
-**Step 1: Remove unused imports and functions**
+**Expected:**
+- Message appears in web
+- Message appears in desktop
+- Response appears in both
 
-After confirming everything works:
-- Remove old `sendTRPCRequest` if fully replaced
-- Remove complex tRPC subscription handling in ws-link
-- Clean up any commented-out code
+**Step 5: Test sync**
 
-**Step 2: Final commit**
+Send message from desktop.
 
-```bash
-git add -A
-git commit -m "chore: cleanup unused WebSocket code"
-```
+**Expected:**
+- Message appears in web immediately
 
 ---
 
 ## Testing Checklist
 
-- [ ] Web client can subscribe to chat
-- [ ] Web client can send messages
-- [ ] Messages appear in both web and desktop simultaneously
-- [ ] Desktop can still send messages
-- [ ] Desktop messages appear in web
-- [ ] Unsubscribe works correctly
-- [ ] Reconnection after disconnect works
-- [ ] No memory leaks (subscriptions cleaned up)
-- [ ] Console shows expected logs
+- [ ] Auth sends projects + model profiles
+- [ ] Project subscription sends chat list
+- [ ] Chat subscription sends message history
+- [ ] Chat subscription streams new messages
+- [ ] Send message works from web
+- [ ] Send message works from desktop
+- [ ] Messages sync between web and desktop
+- [ ] Unsubscribe works
+- [ ] Reconnection works
+- [ ] No memory leaks
 
 ---
 
@@ -654,5 +970,3 @@ git revert HEAD  # Undo last commit
 # Or
 git reset --hard <working-commit-hash>
 ```
-
-The old code is preserved in git history for easy rollback.
