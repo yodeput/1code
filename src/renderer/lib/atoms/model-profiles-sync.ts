@@ -4,7 +4,7 @@ import { trpc } from "../../lib/trpc"
 import {
   localStorageModelProfilesAtom,
 } from "./index"
-import { OFFLINE_PROFILE, type ModelProfile } from "./model-profile-types"
+import { OFFLINE_PROFILE, type ModelProfile } from "./index"
 import { isRemoteMode } from "../remote-transport"
 
 /**
