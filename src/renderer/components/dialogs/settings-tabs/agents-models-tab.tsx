@@ -18,6 +18,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../../ui/dropdown-menu"
+import { ProxyProfilesSection } from "../../../features/proxy-profiles"
 import { Input } from "../../ui/input"
 import { Label } from "../../ui/label"
 
@@ -467,6 +468,9 @@ export function AgentsModelsTab() {
 
         </div>
       </div>
+
+      {/* Proxy Profiles Section */}
+      <ProxyProfilesSection />
 
       {/* OpenAI API Key for Voice Input */}
       <div className="space-y-2">
