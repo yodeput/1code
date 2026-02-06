@@ -20,7 +20,6 @@ import {
   anthropicOnboardingCompletedAtom, apiKeyOnboardingCompletedAtom,
   billingMethodAtom
 } from "./lib/atoms"
-import { proxyProfileOnboardingCompletedAtom } from "./features/proxy-profiles"
 import { appStore } from "./lib/jotai-store"
 import { VSCodeThemeProvider } from "./lib/themes/theme-provider"
 import { trpc } from "./lib/trpc"
@@ -52,7 +51,6 @@ function AppContent() {
   const setAnthropicOnboardingCompleted = useSetAtom(anthropicOnboardingCompletedAtom)
   const apiKeyOnboardingCompleted = useAtomValue(apiKeyOnboardingCompletedAtom)
   const setApiKeyOnboardingCompleted = useSetAtom(apiKeyOnboardingCompletedAtom)
-  const proxyProfileOnboardingCompleted = useAtomValue(proxyProfileOnboardingCompletedAtom)
   const selectedProject = useAtomValue(selectedProjectAtom)
   const setSelectedChatId = useSetAtom(selectedAgentChatIdAtom)
   const { setActiveSubChat, addToOpenSubChats, setChatId } = useAgentSubChatStore()
@@ -113,7 +111,7 @@ function AppContent() {
   // 1. No billing method selected -> BillingMethodPage
   // 2. Claude subscription selected but not completed -> AnthropicOnboardingPage
   // 3. API key selected but not completed -> ApiKeyOnboardingPage
-  // 4. Custom model selected but not completed -> ProxyProfileOnboardingPage
+  // 4. Custom model selected -> ProxyProfileOnboardingPage
   // 5. No valid project selected -> SelectRepoPage
   // 6. Otherwise -> AgentsLayout
   if (!billingMethod) {
@@ -128,7 +126,7 @@ function AppContent() {
     return <ApiKeyOnboardingPage />
   }
 
-  if (billingMethod === "custom-model" && !proxyProfileOnboardingCompleted) {
+  if (billingMethod === "custom-model") {
     return <ProxyProfileOnboardingPage />
   }
 

@@ -1,7 +1,7 @@
 "use client"
 
 import { useSetAtom } from "jotai"
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { ChevronLeft, Plus, X } from "lucide-react"
 import { toast } from "sonner"
 
@@ -10,7 +10,7 @@ import { Input } from "../../components/ui/input"
 import { Label } from "../../components/ui/label"
 import { Logo } from "../../components/ui/logo"
 import { Button } from "../../components/ui/button"
-import { billingMethodAtom } from "../../lib/atoms"
+import { billingMethodAtom, apiKeyOnboardingCompletedAtom } from "../../lib/atoms"
 import { trpc } from "../../lib/trpc"
 import { proxyProfileOnboardingCompletedAtom } from "../proxy-profiles/atoms"
 import { cn } from "../../lib/utils"
@@ -18,6 +18,7 @@ import { cn } from "../../lib/utils"
 export function ProxyProfileOnboardingPage() {
   const setBillingMethod = useSetAtom(billingMethodAtom)
   const setOnboardingCompleted = useSetAtom(proxyProfileOnboardingCompletedAtom)
+  const setApiKeyOnboardingCompleted = useSetAtom(apiKeyOnboardingCompletedAtom)
 
   const [name, setName] = useState("Default")
   const [baseUrl, setBaseUrl] = useState("")
@@ -80,6 +81,9 @@ export function ProxyProfileOnboardingPage() {
         isDefault: true,
       })
       setOnboardingCompleted(true)
+      setApiKeyOnboardingCompleted(true)
+      // Change billing method to api-key to indicate completion and move to next step
+      setBillingMethod("api-key")
       toast.success("Proxy profile configured")
     } catch {
       toast.error("Failed to create profile")

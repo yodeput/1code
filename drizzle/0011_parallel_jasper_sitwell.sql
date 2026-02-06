@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `proxy_profiles_name_unique` ON `proxy_profiles` (`name`);

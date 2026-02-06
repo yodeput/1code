@@ -87,6 +87,17 @@ export const proxyProfilesRouter = router({
       const db = getDatabase()
       const newId = createId()
 
+      // Check if profile with same name already exists
+      const existing = db
+        .select()
+        .from(proxyProfiles)
+        .where(eq(proxyProfiles.name, input.name.trim()))
+        .get()
+
+      if (existing) {
+        throw new Error(`Profile "${input.name}" already exists. Please use a different name.`)
+      }
+
       const encryptedKey = encryptString(input.apiKey)
 
       // If setting as default, clear other defaults
@@ -126,6 +137,19 @@ export const proxyProfilesRouter = router({
     )
     .mutation(({ input }) => {
       const db = getDatabase()
+
+      // Check if name conflicts with another profile
+      if (input.name !== undefined) {
+        const existing = db
+          .select()
+          .from(proxyProfiles)
+          .where(eq(proxyProfiles.name, input.name.trim()))
+          .get()
+
+        if (existing && existing.id !== input.id) {
+          throw new Error(`Profile "${input.name}" already exists. Please use a different name.`)
+        }
+      }
 
       const updateData: Record<string, unknown> = {
         updatedAt: new Date(),
@@ -223,20 +247,92 @@ export const proxyProfilesRouter = router({
     }),
 
   /**
+   * Test connection to a proxy endpoint
+   */
+  testConnection: publicProcedure
+    .input(
+      z.object({
+        baseUrl: z.string().url(),
+        apiKey: z.string().min(1),
+        model: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      try {
+        const response = await fetch(`${input.baseUrl}/v1/messages`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": input.apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: input.model,
+            max_tokens: 1,
+            messages: [{ role: "user", content: "test" }],
+          }),
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          return {
+            success: true,
+            message: "Connection successful",
+            model: data.model || input.model,
+          }
+        }
+
+        const errorText = await response.text().catch(() => "Unknown error")
+        return {
+          success: false,
+          message: `Connection failed: ${response.status} ${response.statusText}`,
+          details: errorText,
+        }
+      } catch (error) {
+        return {
+          success: false,
+          message: "Connection failed",
+          details: error instanceof Error ? error.message : String(error),
+        }
+      }
+    }),
+
+  /**
    * Get default profile
+   * Safeguards against multiple defaults by returning only the first and cleaning up extras
    */
   getDefault: publicProcedure.query(() => {
     const db = getDatabase()
 
-    const profile = db
+    const profiles = db
       .select()
       .from(proxyProfiles)
       .where(eq(proxyProfiles.isDefault, true))
-      .get()
+      .all()
 
-    if (!profile) {
+    if (profiles.length === 0) {
       return null
     }
+
+    // If multiple defaults exist, keep only the first one (most recently created)
+    if (profiles.length > 1) {
+      console.warn(`[ProxyProfiles] Found ${profiles.length} default profiles, cleaning up extras`)
+      const [keepProfile, ...extras] = profiles.sort((a, b) =>
+        (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0)
+      )
+
+      // Clear isDefault on all extras
+      for (const extra of extras) {
+        db.update(proxyProfiles)
+          .set({ isDefault: false, updatedAt: new Date() })
+          .where(eq(proxyProfiles.id, extra.id))
+          .run()
+      }
+
+      console.log(`[ProxyProfiles] Kept default: ${keepProfile.id}, cleared ${extras.length} extras`)
+    }
+
+    const profile = profiles[0]
 
     return {
       id: profile.id,

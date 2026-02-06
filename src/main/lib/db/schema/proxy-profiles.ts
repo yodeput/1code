@@ -8,7 +8,7 @@ export const proxyProfiles = sqliteTable("proxy_profiles", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => createId()),
-  name: text("name").notNull(), // "GLM", "OpenRouter"
+  name: text("name").notNull().unique(), // "GLM", "OpenRouter" - unique per profile
   baseUrl: text("base_url").notNull(), // "https://api.example.com"
   apiKeyEncrypted: text("api_key_encrypted").notNull(), // Encrypted with safeStorage
   models: text("models").notNull(), // JSON array: ["glm-4.7", "glm-4.5"]
