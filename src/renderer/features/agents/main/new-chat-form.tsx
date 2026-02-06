@@ -95,7 +95,11 @@ import {
   ProfileSelector,
   ModelSelector,
 } from "../../proxy-profiles"
-import { activeChatProfileTypeAtom } from "../../proxy-profiles/atoms"
+import {
+  activeChatProfileTypeAtom,
+  activeChatProxyProfileIdAtom,
+  activeChatSelectedModelAtom,
+} from "../../proxy-profiles/atoms"
 // import { CreateBranchDialog } from "@/app/(alpha)/agents/{components}/create-branch-dialog"
 import {
   PromptInput,
@@ -241,6 +245,8 @@ export function NewChatForm({
     normalizeCustomClaudeConfig(customClaudeConfig)
   const hasCustomClaudeConfig = Boolean(normalizedCustomClaudeConfig)
   const profileType = useAtomValue(activeChatProfileTypeAtom)
+  const proxyProfileId = useAtomValue(activeChatProxyProfileIdAtom)
+  const selectedProxyModel = useAtomValue(activeChatSelectedModelAtom)
   const setSettingsDialogOpen = useSetAtom(agentsSettingsDialogOpenAtom)
   const setSettingsActiveTab = useSetAtom(agentsSettingsDialogActiveTabAtom)
   const setJustCreatedIds = useSetAtom(justCreatedIdsAtom)
@@ -1100,6 +1106,10 @@ export function NewChatForm({
         workMode === "worktree" ? selectedBranchType : undefined,
       useWorktree: workMode === "worktree",
       mode: agentMode,
+      // Profile settings from new chat form
+      profileType,
+      proxyProfileId,
+      selectedModel: selectedProxyModel,
     })
     // Editor, images, files, and pasted texts are cleared in onSuccess callback
   }, [
@@ -1115,6 +1125,9 @@ export function NewChatForm({
     pastedTexts,
     agentMode,
     trpcUtils,
+    profileType,
+    proxyProfileId,
+    selectedProxyModel,
   ])
 
   const handleMentionSelect = useCallback((mention: FileMentionOption) => {
@@ -2156,6 +2169,10 @@ export function NewChatForm({
                     ],
                     useWorktree: false,
                     mode: "agent",
+                    // Profile settings from new chat form
+                    profileType,
+                    proxyProfileId,
+                    selectedModel: selectedProxyModel,
                   })
                 }
               }}

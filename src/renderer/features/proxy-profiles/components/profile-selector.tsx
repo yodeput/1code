@@ -1,5 +1,6 @@
 import { ChevronDown } from "lucide-react"
 import { useAtom, useSetAtom } from "jotai"
+import { useEffect, useRef } from "react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -7,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "../../../components/ui/dropdown-menu"
 import { Button } from "../../../components/ui/button"
-import { useProxyProfiles } from "../hooks/use-proxy-profiles"
+import { useProxyProfiles, useDefaultProxyProfile } from "../hooks/use-proxy-profiles"
 import {
   activeChatProfileTypeAtom,
   activeChatProxyProfileIdAtom,
@@ -29,6 +30,7 @@ interface ProfileSelectorProps {
 
 export function ProfileSelector({ disabled = false }: ProfileSelectorProps) {
   const { data: profiles } = useProxyProfiles()
+  const { data: defaultProfile } = useDefaultProxyProfile()
   const { data: anthropicAccounts } = trpc.anthropicAccounts.list.useQuery()
   const customClaudeConfig = useAtomValue(customClaudeConfigAtom)
 
@@ -36,16 +38,40 @@ export function ProfileSelector({ disabled = false }: ProfileSelectorProps) {
   const [selectedProfileId, setSelectedProfileId] = useAtom(activeChatProxyProfileIdAtom)
   const setSelectedModel = useSetAtom(activeChatSelectedModelAtom)
 
+  // Track if we've initialized the default profile
+  const initializedRef = useRef(false)
+
   const selectedProfile = profiles?.find((p) => p.id === selectedProfileId)
   const hasAnthropicAccount = (anthropicAccounts?.length ?? 0) > 0
   const hasProfiles = (profiles?.length ?? 0) > 0
   const hasOverride = hasOverrideConfig(customClaudeConfig)
 
+  // Auto-select default proxy profile on first load (for new chats)
+  useEffect(() => {
+    // Don't initialize if user already has a selection (not oauth, or has a selected profile)
+    if (selectedProfileId || profileType !== "oauth") {
+      initializedRef.current = true
+      return
+    }
+
+    // If no default profile exists, mark as initialized to stop retries
+    if (!defaultProfile) {
+      initializedRef.current = true
+      return
+    }
+
+    // Default profile exists and no selection - auto-select it
+    setProfileType("proxy")
+    setSelectedProfileId(defaultProfile.id)
+    setSelectedModel(defaultProfile.models?.[0] ?? null)
+    initializedRef.current = true
+  }, [profileType, defaultProfile, selectedProfileId, setProfileType, setSelectedProfileId, setSelectedModel])
+
   // Count available options
   const optionCount = (hasAnthropicAccount ? 1 : 0) + (hasOverride ? 1 : 0) + (profiles?.length ?? 0)
 
-  // Don't show selector if no options or only 1 option
-  if (optionCount <= 1) {
+  // Don't show selector if no options available
+  if (optionCount === 0) {
     return null
   }
 

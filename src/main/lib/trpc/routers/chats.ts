@@ -309,6 +309,10 @@ export const chatsRouter = router({
         branchType: z.enum(["local", "remote"]).optional(), // Whether baseBranch is local or remote
         useWorktree: z.boolean().default(true), // If false, work directly in project dir
         mode: z.enum(["plan", "agent"]).default("agent"),
+        // Profile settings
+        profileType: z.enum(["oauth", "override", "proxy"]).default("oauth").optional(),
+        proxyProfileId: z.string().nullable().optional(),
+        selectedModel: z.string().nullable().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
@@ -361,6 +365,9 @@ export const chatsRouter = router({
           chatId: chat.id,
           mode: input.mode,
           messages: initialMessages,
+          profileType: input.profileType ?? "oauth",
+          proxyProfileId: input.proxyProfileId ?? null,
+          selectedModel: input.selectedModel ?? null,
         })
         .returning()
         .get()

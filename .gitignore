@@ -30,3 +30,8 @@ electron.vite.config.*.mjs
 
 # Claude binary (downloaded at build time)
 resources/bin/
+
+# Navigator context markers
+.agent/.context-markers/
+# Navigator temporary files
+.agent/.nav-temp/
