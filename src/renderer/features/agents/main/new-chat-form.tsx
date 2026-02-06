@@ -91,6 +91,7 @@ import { AgentImageItem } from "../ui/agent-image-item"
 import { AgentPastedTextItem } from "../ui/agent-pasted-text-item"
 import { AgentsHeaderControls } from "../ui/agents-header-controls"
 import { VoiceWaveIndicator } from "../ui/voice-wave-indicator"
+import { ProfileSelector, ModelSelector } from "../../proxy-profiles"
 // import { CreateBranchDialog } from "@/app/(alpha)/agents/{components}/create-branch-dialog"
 import {
   PromptInput,
@@ -1576,6 +1577,10 @@ export function NewChatForm({
                   </div>
                   <PromptInputActions className="w-full">
                     <div className="flex items-center gap-0.5 flex-1 min-w-0">
+                      {/* Profile selector (Proxy Profiles) */}
+                      <ProfileSelector />
+                      {/* Model selector (from selected profile) */}
+                      <ModelSelector />
                       {/* Mode toggle (Agent/Plan) */}
                       <DropdownMenu
                         open={modeDropdownOpen}
