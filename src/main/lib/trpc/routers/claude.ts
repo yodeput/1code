@@ -25,7 +25,7 @@ import {
   writeClaudeConfig,
   type McpServerConfig,
 } from "../../claude-config"
-import { chats, claudeCodeCredentials, getDatabase, subChats } from "../../db"
+import { chats, claudeCodeCredentials, getDatabase, subChats, proxyProfiles } from "../../db"
 import { createRollbackStash } from "../../git/stash"
 import {
   ensureMcpTokensFresh,
@@ -682,6 +682,8 @@ export const claudeRouter = router({
         historyEnabled: z.boolean().optional(),
         offlineModeEnabled: z.boolean().optional(), // Whether offline mode (Ollama) is enabled in settings
         enableTasks: z.boolean().optional(), // Enable task management tools (TodoWrite, Task agents)
+        proxyProfileId: z.string().optional(), // Proxy profile ID for custom API endpoints
+        proxyModel: z.string().optional(), // Model to use from proxy profile
       }),
     )
     .subscription(({ input }) => {
@@ -846,8 +848,48 @@ export const claudeRouter = router({
             }
 
             // Use offline config if available
-            const finalCustomConfig = offlineResult.config || input.customConfig
+            let finalCustomConfig = offlineResult.config || input.customConfig
             const isUsingOllama = offlineResult.isUsingOllama
+
+            // If proxy profile is specified, fetch and use it (overrides customConfig)
+            if (input.proxyProfileId && !isUsingOllama) {
+              try {
+                const profile = db
+                  .select()
+                  .from(proxyProfiles)
+                  .where(eq(proxyProfiles.id, input.proxyProfileId))
+                  .get()
+
+                if (profile) {
+                  // Decrypt the API key
+                  let decryptedApiKey = ""
+                  if (profile.apiKeyEncrypted) {
+                    try {
+                      const buffer = Buffer.from(profile.apiKeyEncrypted, "base64")
+                      decryptedApiKey = safeStorage.decryptString(buffer)
+                    } catch (decryptError) {
+                      console.error("[claude] Failed to decrypt proxy profile API key:", decryptError)
+                    }
+                  }
+
+                  if (decryptedApiKey) {
+                    // Use the selected model from input, or first model from profile
+                    const models = JSON.parse(profile.models || "[]") as string[]
+                    const selectedModel = input.proxyModel || models[0] || ""
+
+                    finalCustomConfig = {
+                      model: selectedModel,
+                      token: decryptedApiKey,
+                      baseUrl: profile.baseUrl,
+                    }
+
+                    console.log(`[claude] Using proxy profile "${profile.name}" with model "${selectedModel}"`)
+                  }
+                }
+              } catch (profileError) {
+                console.error("[claude] Failed to fetch proxy profile:", profileError)
+              }
+            }
 
             // Track connection method for analytics
             let connectionMethod = "claude-subscription" // default (Claude Code OAuth)

@@ -25,6 +25,7 @@ import {
   pendingAuthRetryMessageAtom,
   pendingUserQuestionsAtom,
 } from "../atoms"
+import { activeChatProxyProfileIdAtom, activeChatSelectedModelAtom } from "../../proxy-profiles/atoms"
 import { useAgentSubChatStore } from "../stores/sub-chat-store"
 import type { AgentMessageMetadata } from "../ui/agent-message-usage"
 
@@ -175,7 +176,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
     const storedCustomConfig = appStore.get(
       customClaudeConfigAtom,
     ) as CustomClaudeConfig
-    const customConfig = normalizeCustomClaudeConfig(storedCustomConfig)
+    let customConfig = normalizeCustomClaudeConfig(storedCustomConfig)
 
     // Get selected Ollama model for offline mode
     const selectedOllamaModel = appStore.get(selectedOllamaModelAtom)
@@ -183,6 +184,33 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
     const showOfflineFeatures = appStore.get(showOfflineModeFeaturesAtom)
     const autoOfflineMode = appStore.get(autoOfflineModeAtom)
     const offlineModeEnabled = showOfflineFeatures && autoOfflineMode
+
+    // Get proxy profile selection
+    const proxyProfileId = appStore.get(activeChatProxyProfileIdAtom)
+    const proxyModel = appStore.get(activeChatSelectedModelAtom)
+
+    // If proxy profile is selected, fetch decrypted key and build customConfig
+    // This overrides the Override Model config (proxy profile takes precedence)
+    if (proxyProfileId) {
+      try {
+        const result = await trpcClient.proxyProfiles.getDecryptedKey.query({ id: proxyProfileId })
+        if (result.key) {
+          const profiles = await trpcClient.proxyProfiles.list.query()
+          const profile = profiles.find(p => p.id === proxyProfileId)
+          if (profile) {
+            const selectedModel = proxyModel || profile.models[0] || ""
+            customConfig = {
+              model: selectedModel,
+              token: result.key,
+              baseUrl: profile.baseUrl,
+            }
+            console.log(`[SD] Using proxy profile "${profile.name}" with model "${selectedModel}"`)
+          }
+        }
+      } catch (err) {
+        console.error("[SD] Failed to fetch proxy profile:", err)
+      }
+    }
 
     const currentMode =
       useAgentSubChatStore
@@ -215,6 +243,8 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
             offlineModeEnabled,
             enableTasks,
             ...(images.length > 0 && { images }),
+            ...(proxyProfileId && { proxyProfileId }),
+            ...(proxyModel && { proxyModel }),
           },
           {
             onData: (chunk: UIMessageChunk) => {
@@ -333,7 +363,22 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
               }
 
               // Handle authentication errors - show Claude login modal
+              // But only if no proxy profile is selected (proxy profiles have their own auth)
               if (chunk.type === "auth-error") {
+                const selectedProxyProfileId = appStore.get(activeChatProxyProfileIdAtom)
+
+                // If a proxy profile is selected, don't show Anthropic OAuth modal
+                // Instead, show error toast about proxy profile auth issue
+                if (selectedProxyProfileId) {
+                  toast.error("Authentication failed", {
+                    description: "Please check your proxy profile API key in Settings",
+                    duration: 5000,
+                  })
+                  console.log(`[SD] R:AUTH_ERR sub=${subId} (proxy profile - skipping OAuth modal)`)
+                  controller.error(new Error("Proxy profile authentication failed"))
+                  return
+                }
+
                 // Store the failed message for retry after successful auth
                 // readyToRetry=false prevents immediate retry - modal sets it to true on OAuth success
                 appStore.set(pendingAuthRetryMessageAtom, {

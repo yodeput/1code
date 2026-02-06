@@ -91,7 +91,11 @@ import { AgentImageItem } from "../ui/agent-image-item"
 import { AgentPastedTextItem } from "../ui/agent-pasted-text-item"
 import { AgentsHeaderControls } from "../ui/agents-header-controls"
 import { VoiceWaveIndicator } from "../ui/voice-wave-indicator"
-import { ProfileSelector, ModelSelector } from "../../proxy-profiles"
+import {
+  ProfileSelector,
+  ModelSelector,
+} from "../../proxy-profiles"
+import { activeChatProxyProfileIdAtom, activeChatSelectedModelAtom } from "../../proxy-profiles/atoms"
 // import { CreateBranchDialog } from "@/app/(alpha)/agents/{components}/create-branch-dialog"
 import {
   PromptInput,
@@ -236,6 +240,8 @@ export function NewChatForm({
   const normalizedCustomClaudeConfig =
     normalizeCustomClaudeConfig(customClaudeConfig)
   const hasCustomClaudeConfig = Boolean(normalizedCustomClaudeConfig)
+  const [selectedProxyProfileId, setSelectedProxyProfileId] = useAtom(activeChatProxyProfileIdAtom)
+  const setSelectedProxyModel = useSetAtom(activeChatSelectedModelAtom)
   const setSettingsDialogOpen = useSetAtom(agentsSettingsDialogOpenAtom)
   const setSettingsActiveTab = useSetAtom(agentsSettingsDialogActiveTabAtom)
   const setJustCreatedIds = useSetAtom(justCreatedIdsAtom)
@@ -250,6 +256,20 @@ export function NewChatForm({
       return false
     }
   })
+
+  // Query default proxy profile and preselect it for new chats
+  const { data: defaultProxyProfile } = trpc.proxyProfiles.getDefault.useQuery()
+
+  // Preselect default proxy profile on mount (for new chat form)
+  useEffect(() => {
+    if (defaultProxyProfile && !selectedProxyProfileId) {
+      setSelectedProxyProfileId(defaultProxyProfile.id)
+      // Also set the first model as default
+      if (defaultProxyProfile.models.length > 0) {
+        setSelectedProxyModel(defaultProxyProfile.models[0])
+      }
+    }
+  }, [defaultProxyProfile, selectedProxyProfileId, setSelectedProxyProfileId, setSelectedProxyModel])
 
   // Check if project has worktree config
   const { data: worktreeConfigData } = trpc.worktreeConfig.get.useQuery(
@@ -1577,10 +1597,6 @@ export function NewChatForm({
                   </div>
                   <PromptInputActions className="w-full">
                     <div className="flex items-center gap-0.5 flex-1 min-w-0">
-                      {/* Profile selector (Proxy Profiles) */}
-                      <ProfileSelector />
-                      {/* Model selector (from selected profile) */}
-                      <ModelSelector />
                       {/* Mode toggle (Agent/Plan) */}
                       <DropdownMenu
                         open={modeDropdownOpen}
@@ -1748,8 +1764,15 @@ export function NewChatForm({
                           )}
                       </DropdownMenu>
 
+                      {/* Profile selector (Proxy Profiles) */}
+                      <ProfileSelector />
+                      {/* Model selector (from selected profile) */}
+                      <ModelSelector />
+
                       {/* Model selector - shows Ollama models when offline, Claude models when online */}
-                      {availableModels.isOffline && availableModels.hasOllama ? (
+                      {/* Hide when a proxy profile is selected */}
+                      {!selectedProxyProfileId && (
+                        availableModels.isOffline && availableModels.hasOllama ? (
                         // Offline mode: show Ollama model selector
                         <DropdownMenu
                           open={isModelDropdownOpen}
@@ -1852,7 +1875,7 @@ export function NewChatForm({
                             })}
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      )}
+                      ))}
                     </div>
 
                     <div className="flex items-center gap-0.5 ml-auto flex-shrink-0">
