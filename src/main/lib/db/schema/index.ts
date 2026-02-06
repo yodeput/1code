@@ -2,6 +2,10 @@ import { index, sqliteTable, text, integer } from "drizzle-orm/sqlite-core"
 import { relations } from "drizzle-orm"
 import { createId } from "../utils"
 
+// Re-export proxy profiles schema
+export * from "./proxy-profiles"
+import { proxyProfiles } from "./proxy-profiles"
+
 // ============ PROJECTS ============
 export const projects = sqliteTable("projects", {
   id: text("id")
@@ -76,6 +80,11 @@ export const subChats = sqliteTable("sub_chats", {
   streamId: text("stream_id"), // Track in-progress streams
   mode: text("mode").notNull().default("agent"), // "plan" | "agent"
   messages: text("messages").notNull().default("[]"), // JSON array
+  // Proxy profile selection for custom model providers
+  proxyProfileId: text("proxy_profile_id").references(() => proxyProfiles.id, {
+    onDelete: "set null",
+  }),
+  selectedModel: text("selected_model"), // Which model from the profile's models array
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
     () => new Date(),
   ),
