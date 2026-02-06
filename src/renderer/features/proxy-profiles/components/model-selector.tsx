@@ -14,7 +14,11 @@ import {
   activeChatSelectedModelAtom,
 } from "../atoms"
 
-export function ModelSelector() {
+interface ModelSelectorProps {
+  disabled?: boolean
+}
+
+export function ModelSelector({ disabled = false }: ModelSelectorProps) {
   const { data: profiles } = useProxyProfiles()
   const profileType = useAtomValue(activeChatProfileTypeAtom)
   const [selectedProfileId] = useAtom(activeChatProxyProfileIdAtom)
@@ -50,11 +54,12 @@ export function ModelSelector() {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+      <DropdownMenuTrigger asChild disabled={disabled}>
         <Button
           variant="ghost"
           size="sm"
           className="h-7 gap-1 px-2 text-xs font-normal"
+          disabled={disabled}
         >
           {currentModel}
           <ChevronDown className="h-3 w-3" />

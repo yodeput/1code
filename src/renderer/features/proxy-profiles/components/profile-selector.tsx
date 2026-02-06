@@ -23,7 +23,11 @@ function hasOverrideConfig(config: { model: string; token: string; baseUrl: stri
   return Boolean(config.model?.trim() && config.token?.trim() && config.baseUrl?.trim())
 }
 
-export function ProfileSelector() {
+interface ProfileSelectorProps {
+  disabled?: boolean
+}
+
+export function ProfileSelector({ disabled = false }: ProfileSelectorProps) {
   const { data: profiles } = useProxyProfiles()
   const { data: anthropicAccounts } = trpc.anthropicAccounts.list.useQuery()
   const customClaudeConfig = useAtomValue(customClaudeConfigAtom)
@@ -79,11 +83,12 @@ export function ProfileSelector() {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+      <DropdownMenuTrigger asChild disabled={disabled}>
         <Button
           variant="ghost"
           size="sm"
           className="h-7 gap-1 px-2 text-xs font-normal"
+          disabled={disabled}
         >
           {getDisplayName()}
           <ChevronDown className="h-3 w-3" />

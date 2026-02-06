@@ -64,6 +64,20 @@
       "when": 1770343219896,
       "tag": "0008_first_sharon_ventura",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1770356855959,
+      "tag": "0009_gifted_leech",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1770358750817,
+      "tag": "0010_workable_tarot",
+      "breakpoints": true
     }
   ]
 }

@@ -26,6 +26,12 @@ export const projects = sqliteTable("projects", {
   gitRepo: text("git_repo"),
   // Custom project icon (absolute path to local image file)
   iconPath: text("icon_path"),
+  // Profile/model selection for custom model providers (per-project)
+  profileType: text("profile_type").default("oauth"), // "oauth" | "override" | "proxy"
+  proxyProfileId: text("proxy_profile_id").references(() => proxyProfiles.id, {
+    onDelete: "set null",
+  }),
+  selectedModel: text("selected_model"), // Which model from the profile's models array
 })
 
 export const projectsRelations = relations(projects, ({ many }) => ({
@@ -80,7 +86,8 @@ export const subChats = sqliteTable("sub_chats", {
   streamId: text("stream_id"), // Track in-progress streams
   mode: text("mode").notNull().default("agent"), // "plan" | "agent"
   messages: text("messages").notNull().default("[]"), // JSON array
-  // Proxy profile selection for custom model providers
+  // Profile/model selection for custom model providers
+  profileType: text("profile_type").default("oauth"), // "oauth" | "override" | "proxy"
   proxyProfileId: text("proxy_profile_id").references(() => proxyProfiles.id, {
     onDelete: "set null",
   }),

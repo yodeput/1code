@@ -89,8 +89,9 @@ import { customHotkeysAtom } from "../../../lib/atoms"
 import {
   ProfileSelector,
   ModelSelector,
+  useProfilePersistence,
 } from "../../proxy-profiles"
-import { activeChatProxyProfileIdAtom, activeChatSelectedModelAtom } from "../../proxy-profiles/atoms"
+import { activeChatProxyProfileIdAtom, activeChatSelectedModelAtom, activeChatProfileTypeAtom } from "../../proxy-profiles/atoms"
 
 // Hook to get available models (including offline models if Ollama is available and debug enabled)
 function useAvailableModels() {
@@ -442,22 +443,11 @@ export const ChatInputArea = memo(function ChatInputArea({
   const normalizedCustomClaudeConfig =
     normalizeCustomClaudeConfig(customClaudeConfig)
   const hasCustomClaudeConfig = Boolean(normalizedCustomClaudeConfig)
-  const [selectedProxyProfileId, setSelectedProxyProfileId] = useAtom(activeChatProxyProfileIdAtom)
-  const setSelectedProxyModel = useSetAtom(activeChatSelectedModelAtom)
+  const [selectedProxyProfileId] = useAtom(activeChatProxyProfileIdAtom)
+  const profileType = useAtomValue(activeChatProfileTypeAtom)
 
-  // Query default proxy profile and preselect it for new chats
-  const { data: defaultProxyProfile } = trpc.proxyProfiles.getDefault.useQuery()
-
-  // Preselect default proxy profile on mount (for chat input)
-  useEffect(() => {
-    if (defaultProxyProfile && !selectedProxyProfileId) {
-      setSelectedProxyProfileId(defaultProxyProfile.id)
-      // Also set the first model as default
-      if (defaultProxyProfile.models.length > 0) {
-        setSelectedProxyModel(defaultProxyProfile.models[0])
-      }
-    }
-  }, [defaultProxyProfile, selectedProxyProfileId, setSelectedProxyProfileId, setSelectedProxyModel])
+  // Sync profile/model selection with database
+  useProfilePersistence(subChatId)
 
   // Determine current Ollama model (selected or recommended)
   const currentOllamaModel = selectedOllamaModel || availableModels.recommendedModel || availableModels.ollamaModels[0]
@@ -1363,12 +1353,12 @@ export const ChatInputArea = memo(function ChatInputArea({
                   </DropdownMenu>
 
                   {/* Proxy Profile & Model selectors */}
-                  <ProfileSelector />
-                  <ModelSelector />
+                  <ProfileSelector disabled={isStreaming} />
+                  <ModelSelector disabled={isStreaming} />
 
                   {/* Model selector - shows Ollama models when offline, Claude models when online */}
                   {/* Hide when a proxy profile is selected */}
-                  {!selectedProxyProfileId && (
+                  {profileType === "oauth" && (
                     availableModels.isOffline && availableModels.hasOllama ? (
                     // Offline mode: show Ollama model selector
                     <DropdownMenu

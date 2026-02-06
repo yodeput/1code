@@ -14,10 +14,13 @@ export {
   useDeleteProxyProfile,
   useSetDefaultProfile,
 } from "./hooks/use-proxy-profiles"
+export { useProfilePersistence } from "./hooks/use-profile-persistence"
 
 // Atoms
 export {
   proxyProfileOnboardingCompletedAtom,
+  activeChatProfileTypeAtom,
   activeChatProxyProfileIdAtom,
   activeChatSelectedModelAtom,
+  type ProfileType,
 } from "./atoms"

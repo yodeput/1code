@@ -1,0 +1,1 @@
+ALTER TABLE `sub_chats` ADD `profile_type` text DEFAULT 'oauth';

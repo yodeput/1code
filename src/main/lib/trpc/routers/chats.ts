@@ -838,6 +838,30 @@ export const chatsRouter = router({
     }),
 
   /**
+   * Update sub-chat profile/model selection
+   */
+  updateSubChatProfile: publicProcedure
+    .input(z.object({
+      id: z.string(),
+      profileType: z.enum(["oauth", "override", "proxy"]),
+      proxyProfileId: z.string().nullable(),
+      selectedModel: z.string().nullable(),
+    }))
+    .mutation(({ input }) => {
+      const db = getDatabase()
+      return db
+        .update(subChats)
+        .set({
+          profileType: input.profileType,
+          proxyProfileId: input.proxyProfileId,
+          selectedModel: input.selectedModel,
+        })
+        .where(eq(subChats.id, input.id))
+        .returning()
+        .get()
+    }),
+
+  /**
    * Rename a sub-chat
    */
   renameSubChat: publicProcedure
