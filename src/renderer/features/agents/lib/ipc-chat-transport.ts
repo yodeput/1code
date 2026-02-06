@@ -25,7 +25,7 @@ import {
   pendingAuthRetryMessageAtom,
   pendingUserQuestionsAtom,
 } from "../atoms"
-import { activeChatProxyProfileIdAtom, activeChatSelectedModelAtom } from "../../proxy-profiles/atoms"
+import { activeChatProfileTypeAtom, activeChatProxyProfileIdAtom, activeChatSelectedModelAtom } from "../../proxy-profiles/atoms"
 import { useAgentSubChatStore } from "../stores/sub-chat-store"
 import type { AgentMessageMetadata } from "../ui/agent-message-usage"
 
@@ -185,13 +185,17 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
     const autoOfflineMode = appStore.get(autoOfflineModeAtom)
     const offlineModeEnabled = showOfflineFeatures && autoOfflineMode
 
-    // Get proxy profile selection
+    // Get profile type selection (oauth, override, or proxy)
+    const profileType = appStore.get(activeChatProfileTypeAtom)
     const proxyProfileId = appStore.get(activeChatProxyProfileIdAtom)
     const proxyModel = appStore.get(activeChatSelectedModelAtom)
 
-    // If proxy profile is selected, fetch decrypted key and build customConfig
-    // This overrides the Override Model config (proxy profile takes precedence)
-    if (proxyProfileId) {
+    // Build customConfig based on profile type
+    if (profileType === "override") {
+      // Use Override Model config (already set above)
+      console.log(`[SD] Using Override Model config`)
+    } else if (profileType === "proxy" && proxyProfileId) {
+      // Fetch proxy profile and build customConfig
       try {
         const result = await trpcClient.proxyProfiles.getDecryptedKey.query({ id: proxyProfileId })
         if (result.key) {
@@ -210,6 +214,10 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
       } catch (err) {
         console.error("[SD] Failed to fetch proxy profile:", err)
       }
+    } else {
+      // OAuth mode - clear customConfig so SDK uses OAuth credentials
+      customConfig = undefined
+      console.log(`[SD] Using Anthropic OAuth`)
     }
 
     const currentMode =

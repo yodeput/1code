@@ -3,8 +3,8 @@ import { MoreHorizontal, Plus } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import {
+  agentsLoginModalOpenAtom,
   agentsSettingsDialogOpenAtom,
-  anthropicOnboardingCompletedAtom,
   customClaudeConfigAtom,
   openaiApiKeyAtom,
   type CustomClaudeConfig,
@@ -252,9 +252,7 @@ export function AgentsModelsTab() {
   const [model, setModel] = useState(storedConfig.model)
   const [baseUrl, setBaseUrl] = useState(storedConfig.baseUrl)
   const [token, setToken] = useState(storedConfig.token)
-  const setAnthropicOnboardingCompleted = useSetAtom(
-    anthropicOnboardingCompletedAtom,
-  )
+  const setLoginModalOpen = useSetAtom(agentsLoginModalOpenAtom)
   const setSettingsOpen = useSetAtom(agentsSettingsDialogOpenAtom)
   const isNarrowScreen = useIsNarrowScreen()
   const { data: claudeCodeIntegration, isLoading: isClaudeCodeLoading } =
@@ -320,11 +318,8 @@ export function AgentsModelsTab() {
   const canReset = Boolean(model.trim() || baseUrl.trim() || token.trim())
 
   const handleClaudeCodeSetup = () => {
-    // Don't disconnect - just open onboarding to add a new account
-    // The previous code was calling disconnectClaudeCode.mutate() which
-    // deleted the active account when users tried to add a new one
-    setSettingsOpen(false)
-    setAnthropicOnboardingCompleted(false)
+    // Open the Claude login modal to add a new account
+    setLoginModalOpen(true)
   }
 
   // OpenAI key handlers

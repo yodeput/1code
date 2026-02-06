@@ -8,31 +8,73 @@ import {
 } from "../../../components/ui/dropdown-menu"
 import { Button } from "../../../components/ui/button"
 import { useProxyProfiles } from "../hooks/use-proxy-profiles"
-import { activeChatProxyProfileIdAtom, activeChatSelectedModelAtom } from "../atoms"
+import {
+  activeChatProfileTypeAtom,
+  activeChatProxyProfileIdAtom,
+  activeChatSelectedModelAtom,
+  type ProfileType,
+} from "../atoms"
 import { trpc } from "../../../lib/trpc"
+import { customClaudeConfigAtom } from "../../../lib/atoms"
+import { useAtomValue } from "jotai"
+
+// Helper to check if override config is set
+function hasOverrideConfig(config: { model: string; token: string; baseUrl: string }) {
+  return Boolean(config.model?.trim() && config.token?.trim() && config.baseUrl?.trim())
+}
 
 export function ProfileSelector() {
   const { data: profiles } = useProxyProfiles()
   const { data: anthropicAccounts } = trpc.anthropicAccounts.list.useQuery()
-  const [selectedProfileId, setSelectedProfileId] = useAtom(
-    activeChatProxyProfileIdAtom,
-  )
+  const customClaudeConfig = useAtomValue(customClaudeConfigAtom)
+
+  const [profileType, setProfileType] = useAtom(activeChatProfileTypeAtom)
+  const [selectedProfileId, setSelectedProfileId] = useAtom(activeChatProxyProfileIdAtom)
   const setSelectedModel = useSetAtom(activeChatSelectedModelAtom)
 
   const selectedProfile = profiles?.find((p) => p.id === selectedProfileId)
   const hasAnthropicAccount = (anthropicAccounts?.length ?? 0) > 0
   const hasProfiles = (profiles?.length ?? 0) > 0
+  const hasOverride = hasOverrideConfig(customClaudeConfig)
 
-  // Don't show selector if no profiles and no Anthropic account
-  if (!hasProfiles && !hasAnthropicAccount) {
+  // Count available options
+  const optionCount = (hasAnthropicAccount ? 1 : 0) + (hasOverride ? 1 : 0) + (profiles?.length ?? 0)
+
+  // Don't show selector if no options or only 1 option
+  if (optionCount <= 1) {
     return null
   }
 
-  // Always show when there are proxy profiles (user needs to see selected profile)
-  // Only hide if just Anthropic OAuth and nothing else
-  const totalOptions = (hasAnthropicAccount ? 1 : 0) + (profiles?.length ?? 0)
-  if (totalOptions <= 1 && !hasProfiles) {
-    return null
+  // Get display name based on current selection
+  const getDisplayName = () => {
+    if (profileType === "oauth") {
+      return "Anthropic"
+    }
+    if (profileType === "override") {
+      return "Override"
+    }
+    if (profileType === "proxy" && selectedProfile) {
+      return selectedProfile.name
+    }
+    return "Select Profile"
+  }
+
+  const handleSelectOAuth = () => {
+    setProfileType("oauth")
+    setSelectedProfileId(null)
+    setSelectedModel(null)
+  }
+
+  const handleSelectOverride = () => {
+    setProfileType("override")
+    setSelectedProfileId(null)
+    setSelectedModel(null)
+  }
+
+  const handleSelectProxy = (profile: { id: string; models: string[] }) => {
+    setProfileType("proxy")
+    setSelectedProfileId(profile.id)
+    setSelectedModel(profile.models?.[0] ?? null)
   }
 
   return (
@@ -43,27 +85,25 @@ export function ProfileSelector() {
           size="sm"
           className="h-7 gap-1 px-2 text-xs font-normal"
         >
-          {selectedProfile?.name ?? "Anthropic"}
+          {getDisplayName()}
           <ChevronDown className="h-3 w-3" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         {hasAnthropicAccount && (
-          <DropdownMenuItem onClick={() => {
-            setSelectedProfileId(null)
-            setSelectedModel(null)
-          }}>
+          <DropdownMenuItem onClick={handleSelectOAuth}>
             Anthropic (OAuth)
+          </DropdownMenuItem>
+        )}
+        {hasOverride && (
+          <DropdownMenuItem onClick={handleSelectOverride}>
+            Override Model
           </DropdownMenuItem>
         )}
         {profiles?.map((profile) => (
           <DropdownMenuItem
             key={profile.id}
-            onClick={() => {
-              setSelectedProfileId(profile.id)
-              // Reset model to first model of the new profile
-              setSelectedModel(profile.models?.[0] ?? null)
-            }}
+            onClick={() => handleSelectProxy(profile)}
           >
             {profile.name}
           </DropdownMenuItem>

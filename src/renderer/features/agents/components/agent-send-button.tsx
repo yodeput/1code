@@ -16,6 +16,7 @@ import {
 import { useResolvedHotkeyDisplayWithAlt, useResolvedHotkeyDisplay } from "../../../lib/hotkeys"
 import { cn } from "../../../lib/utils"
 import type { AgentMode } from "../atoms"
+import { useAsciiSpinner } from "../../../lib/hooks/use-ascii-spinner"
 
 interface AgentSendButtonProps {
   /** Whether the system is currently streaming */
@@ -70,6 +71,9 @@ export function AgentSendButton({
   onVoiceMouseUp,
   onVoiceMouseLeave,
 }: AgentSendButtonProps) {
+  // ASCII spinner for generating state
+  const spinnerFrame = useAsciiSpinner(isSubmitting)
+
   // Resolved hotkeys for stop-generation tooltip
   const stopHotkey = useResolvedHotkeyDisplayWithAlt("stop-generation")
   // Resolved hotkey for voice input
@@ -168,7 +172,7 @@ export function AgentSendButton({
           </Kbd>
         </span>
       )
-    if (isSubmitting) return "Generating..."
+    if (isSubmitting) return `Generating ${spinnerFrame}`
     return (
       <div className="flex flex-col items-start gap-0.5">
         <div className="flex items-center gap-1">
@@ -202,7 +206,7 @@ export function AgentSendButton({
     }
     if (isStreaming && !hasContent) return "Stop generation"
     if (isStreaming && hasContent) return "Add to queue"
-    if (isSubmitting) return "Generating..."
+    if (isSubmitting) return `Generating ${spinnerFrame}`
     return "Send message"
   }
 

@@ -18,18 +18,28 @@ import {
 } from "../atoms"
 import { getFileIconByExtension } from "../mentions/agents-file-mention"
 
-// Animated dots component that cycles through ., .., ...
-function AnimatedDots() {
-  const [dotCount, setDotCount] = useState(1)
+// Braille dot spinner frames
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+const SPINNER_INTERVAL = 80
+
+// Hook for ASCII spinner animation
+function useAsciiSpinner(isActive: boolean) {
+  const [frameIndex, setFrameIndex] = useState(0)
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setDotCount((prev) => (prev % 3) + 1)
-    }, 400)
-    return () => clearInterval(interval)
-  }, [])
+    if (!isActive) {
+      setFrameIndex(0)
+      return
+    }
 
-  return <span className="inline-block w-[1em] text-left">{".".repeat(dotCount)}</span>
+    const interval = setInterval(() => {
+      setFrameIndex((prev) => (prev + 1) % SPINNER_FRAMES.length)
+    }, SPINNER_INTERVAL)
+
+    return () => clearInterval(interval)
+  }, [isActive])
+
+  return SPINNER_FRAMES[frameIndex]
 }
 
 interface SubChatStatusCardProps {
@@ -55,6 +65,7 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
   hasQueueCardAbove = false,
 }: SubChatStatusCardProps) {
   const isBusy = isStreaming || isCompacting
+  const spinnerFrame = useAsciiSpinner(isBusy)
   const [isExpanded, setIsExpanded] = useState(false)
   // Use per-chat atom family instead of legacy global atom
   const diffSidebarAtom = useMemo(
@@ -180,7 +191,7 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
           {/* Streaming indicator */}
           {isBusy && (
             <span className="text-xs text-muted-foreground">
-              {isCompacting ? "Compacting" : "Generating"}<AnimatedDots />
+              {spinnerFrame} {isCompacting ? "Compacting" : "Generating"}
             </span>
           )}
 

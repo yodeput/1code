@@ -1,5 +1,5 @@
 import { ChevronDown } from "lucide-react"
-import { useAtom } from "jotai"
+import { useAtom, useAtomValue } from "jotai"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,18 +9,39 @@ import {
 import { Button } from "../../../components/ui/button"
 import { useProxyProfiles } from "../hooks/use-proxy-profiles"
 import {
+  activeChatProfileTypeAtom,
   activeChatProxyProfileIdAtom,
   activeChatSelectedModelAtom,
 } from "../atoms"
 
 export function ModelSelector() {
   const { data: profiles } = useProxyProfiles()
+  const profileType = useAtomValue(activeChatProfileTypeAtom)
   const [selectedProfileId] = useAtom(activeChatProxyProfileIdAtom)
   const [selectedModel, setSelectedModel] = useAtom(activeChatSelectedModelAtom)
 
+  // If using Override, show static "Custom Model" text (no dropdown)
+  if (profileType === "override") {
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-xs font-normal cursor-default hover:bg-transparent"
+        disabled
+      >
+        Custom Model
+      </Button>
+    )
+  }
+
+  // If using OAuth or no proxy profile selected, don't show model selector
+  if (profileType !== "proxy" || !selectedProfileId) {
+    return null
+  }
+
   const selectedProfile = profiles?.find((p) => p.id === selectedProfileId)
 
-  // If no profile selected (using OAuth), don't show model selector
+  // If profile not found, don't show
   if (!selectedProfile) {
     return null
   }

@@ -7,6 +7,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../../../components/ui/tooltip"
+import { useAsciiSpinner } from "../../../lib/hooks/use-ascii-spinner"
 
 interface AgentToolCallProps {
   icon: React.ComponentType<{ className?: string }>
@@ -30,6 +31,9 @@ export const AgentToolCall = memo(
     isNested,
     onClick,
   }: AgentToolCallProps) {
+    // ASCII spinner for pending state
+    const spinnerFrame = useAsciiSpinner(isPending)
+
     // Ensure title and subtitle are strings (copied from canvas)
     const titleStr = String(title)
     const subtitleStr = subtitle ? String(subtitle) : undefined
@@ -83,13 +87,16 @@ export const AgentToolCall = memo(
           <div className="text-xs text-muted-foreground flex items-center gap-1.5 min-w-0">
             <span className="font-medium whitespace-nowrap flex-shrink-0">
               {isPending ? (
-                <TextShimmer
-                  as="span"
-                  duration={1.2}
-                  className="inline-flex items-center text-xs leading-none h-4 m-0"
-                >
-                  {titleStr}
-                </TextShimmer>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="text-muted-foreground">{spinnerFrame}</span>
+                  <TextShimmer
+                    as="span"
+                    duration={1.2}
+                    className="inline-flex items-center text-xs leading-none h-4 m-0"
+                  >
+                    {titleStr}
+                  </TextShimmer>
+                </span>
               ) : (
                 titleStr
               )}
