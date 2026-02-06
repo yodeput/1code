@@ -5,6 +5,7 @@ import { claudeRouter } from "./claude"
 import { claudeCodeRouter } from "./claude-code"
 import { claudeSettingsRouter } from "./claude-settings"
 import { anthropicAccountsRouter } from "./anthropic-accounts"
+import { proxyProfilesRouter } from "./proxy-profiles"
 import { ollamaRouter } from "./ollama"
 import { terminalRouter } from "./terminal"
 import { externalRouter } from "./external"
@@ -32,6 +33,7 @@ export function createAppRouter(getWindow: () => BrowserWindow | null) {
     claudeCode: claudeCodeRouter,
     claudeSettings: claudeSettingsRouter,
     anthropicAccounts: anthropicAccountsRouter,
+    proxyProfiles: proxyProfilesRouter,
     ollama: ollamaRouter,
     terminal: terminalRouter,
     external: externalRouter,
