@@ -13,12 +13,14 @@ import {
   ApiKeyOnboardingPage,
   BillingMethodPage,
   SelectRepoPage,
+  ProxyProfileOnboardingPage,
 } from "./features/onboarding"
 import { identify, initAnalytics, shutdown } from "./lib/analytics"
 import {
   anthropicOnboardingCompletedAtom, apiKeyOnboardingCompletedAtom,
   billingMethodAtom
 } from "./lib/atoms"
+import { proxyProfileOnboardingCompletedAtom } from "./features/proxy-profiles"
 import { appStore } from "./lib/jotai-store"
 import { VSCodeThemeProvider } from "./lib/themes/theme-provider"
 import { trpc } from "./lib/trpc"
@@ -50,6 +52,7 @@ function AppContent() {
   const setAnthropicOnboardingCompleted = useSetAtom(anthropicOnboardingCompletedAtom)
   const apiKeyOnboardingCompleted = useAtomValue(apiKeyOnboardingCompletedAtom)
   const setApiKeyOnboardingCompleted = useSetAtom(apiKeyOnboardingCompletedAtom)
+  const proxyProfileOnboardingCompleted = useAtomValue(proxyProfileOnboardingCompletedAtom)
   const selectedProject = useAtomValue(selectedProjectAtom)
   const setSelectedChatId = useSetAtom(selectedAgentChatIdAtom)
   const { setActiveSubChat, addToOpenSubChats, setChatId } = useAgentSubChatStore()
@@ -109,9 +112,10 @@ function AppContent() {
   // Determine which page to show:
   // 1. No billing method selected -> BillingMethodPage
   // 2. Claude subscription selected but not completed -> AnthropicOnboardingPage
-  // 3. API key or custom model selected but not completed -> ApiKeyOnboardingPage
-  // 4. No valid project selected -> SelectRepoPage
-  // 5. Otherwise -> AgentsLayout
+  // 3. API key selected but not completed -> ApiKeyOnboardingPage
+  // 4. Custom model selected but not completed -> ProxyProfileOnboardingPage
+  // 5. No valid project selected -> SelectRepoPage
+  // 6. Otherwise -> AgentsLayout
   if (!billingMethod) {
     return <BillingMethodPage />
   }
@@ -120,11 +124,12 @@ function AppContent() {
     return <AnthropicOnboardingPage />
   }
 
-  if (
-    (billingMethod === "api-key" || billingMethod === "custom-model") &&
-    !apiKeyOnboardingCompleted
-  ) {
+  if (billingMethod === "api-key" && !apiKeyOnboardingCompleted) {
     return <ApiKeyOnboardingPage />
+  }
+
+  if (billingMethod === "custom-model" && !proxyProfileOnboardingCompleted) {
+    return <ProxyProfileOnboardingPage />
   }
 
   if (!validatedProject && !isLoadingProjects) {
