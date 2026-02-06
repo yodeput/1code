@@ -21,6 +21,7 @@ export interface CommitInfo {
 	author: string;
 	email: string;
 	date: Date;
+	tags?: string[];
 }
 
 interface HistoryViewProps {
@@ -193,7 +194,17 @@ const HistoryCommitItem = memo(function HistoryCommitItem({
 					onClick={onClick}
 				>
 					<div className="flex-1 min-w-0">
-						<div className="text-xs font-medium truncate">{commit.message}</div>
+						<div className="text-xs font-medium truncate flex items-center gap-1.5">
+							<span className="truncate">{commit.message}</span>
+							{commit.tags?.map((tag) => (
+								<span
+									key={tag}
+									className="inline-flex items-center text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded font-medium shrink-0"
+								>
+									{tag}
+								</span>
+							))}
+						</div>
 						<div className="text-xs text-muted-foreground flex items-center gap-1">
 							<span className="font-mono">{commit.shortHash}</span>
 							<span>·</span>

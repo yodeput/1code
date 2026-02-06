@@ -7,7 +7,7 @@ import { memo, useCallback, useContext, useMemo, useState } from "react"
 import { CollapseIcon, ExpandIcon, IconTextUndo, PlanIcon } from "../../../components/ui/icons"
 import { TextShimmer } from "../../../components/ui/text-shimmer"
 import { cn } from "../../../lib/utils"
-import { isRollingBackAtom, rollbackHandlerAtom } from "../stores/message-store"
+import { isRollingBackAtom } from "../stores/message-store"
 import { selectedProjectAtom, showMessageJsonAtom } from "../atoms"
 import { MessageJsonDisplay } from "../ui/message-json-display"
 import { AgentAskUserQuestionTool } from "../ui/agent-ask-user-question-tool"
@@ -35,6 +35,7 @@ import {
   getMessageTextContent,
 } from "../ui/message-action-buttons"
 import { useFileOpen } from "../mentions"
+import { GitActivityBadges } from "../ui/git-activity-badges"
 import { MemoizedTextPart } from "./memoized-text-part"
 
 // Exploring tools - these get grouped when 3+ consecutive
@@ -176,6 +177,7 @@ export interface AssistantMessageItemProps {
   subChatId: string
   chatId: string
   sandboxSetupStatus?: "cloning" | "ready" | "error"
+  onRollback?: (msg: any) => void
 }
 
 // Cache for tracking previous message state per message (to detect AI SDK in-place mutations)
@@ -275,8 +277,8 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
   subChatId,
   chatId,
   sandboxSetupStatus = "ready",
+  onRollback,
 }: AssistantMessageItemProps) {
-  const onRollback = useAtomValue(rollbackHandlerAtom)
   const isRollingBack = useAtomValue(isRollingBackAtom)
   const showMessageJson = useAtomValue(showMessageJsonAtom)
   const selectedProject = useAtomValue(selectedProjectAtom)
@@ -739,6 +741,9 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
           <AgentMessageUsage metadata={msgMetadata} isStreaming={isStreaming} isMobile={isMobile} />
         </div>
       )}
+
+      {/* Git activity badges - commit/PR pills */}
+      {(!isStreaming || !isLastMessage) && <GitActivityBadges parts={messageParts} chatId={chatId} subChatId={subChatId} />}
 
       {isDev && showMessageJson && (
         <div className="px-2 mt-2">
