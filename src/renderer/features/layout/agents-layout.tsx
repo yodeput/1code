@@ -54,7 +54,7 @@ export function AgentsLayout() {
 
   // Global desktop/fullscreen state - initialized here at root level
   const [isDesktop, setIsDesktop] = useAtom(isDesktopAtom)
-  const [, setIsFullscreen] = useAtom(isFullscreenAtom)
+  const [isFullscreen, setIsFullscreen] = useAtom(isFullscreenAtom)
 
   // Initialize isDesktop on mount
   useEffect(() => {
@@ -143,7 +143,8 @@ export function AgentsLayout() {
     setSelectedProject,
   ])
 
-  // Show/hide native traffic lights based on sidebar state
+  // Show/hide native traffic lights based on sidebar and fullscreen state
+  // This also re-syncs visibility when leaving fullscreen
   useEffect(() => {
     if (!isDesktop) return
     if (
@@ -153,7 +154,7 @@ export function AgentsLayout() {
       return
 
     window.desktopApi.setTrafficLightVisibility(sidebarOpen)
-  }, [sidebarOpen, isDesktop])
+  }, [sidebarOpen, isDesktop, isFullscreen])
 
   const setChatId = useAgentSubChatStore((state) => state.setChatId)
 

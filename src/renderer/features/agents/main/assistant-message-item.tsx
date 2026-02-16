@@ -1,9 +1,15 @@
 "use client"
 
 import { useAtomValue } from "jotai"
-import { ListTree } from "lucide-react"
+import { ListTree, MoreHorizontal } from "lucide-react"
 import { memo, useCallback, useContext, useMemo, useState } from "react"
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../../../components/ui/dropdown-menu"
 import { CollapseIcon, ExpandIcon, PlanIcon } from "../../../components/ui/icons"
 import { TextShimmer } from "../../../components/ui/text-shimmer"
 import { cn } from "../../../lib/utils"
@@ -36,6 +42,7 @@ import {
 } from "../ui/message-action-buttons"
 import { useFileOpen } from "../mentions"
 import { GitActivityBadges } from "../ui/git-activity-badges"
+import { ForkContext } from "./isolated-message-group"
 import { MemoizedTextPart } from "./memoized-text-part"
 
 // Exploring tools - these get grouped when 3+ consecutive
@@ -351,6 +358,7 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
   const selectedProject = useAtomValue(selectedProjectAtom)
   const projectPath = selectedProject?.path
   const onOpenFile = useFileOpen()
+  const onFork = useContext(ForkContext)
   const isDev = import.meta.env.DEV
   const messageParts = message?.parts || []
 
@@ -813,7 +821,26 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
               isMobile={isMobile}
             />
           </div>
-          <AgentMessageUsage metadata={msgMetadata} isStreaming={isStreaming} isMobile={isMobile} />
+          <div className="flex items-center gap-0.5">
+            <AgentMessageUsage metadata={msgMetadata} isStreaming={isStreaming} isMobile={isMobile} />
+            {onFork && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    tabIndex={-1}
+                    className="p-1 rounded-md transition-[background-color,transform] duration-150 ease-out hover:bg-accent active:scale-[0.97]"
+                  >
+                    <MoreHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-[160px]">
+                  <DropdownMenuItem onClick={() => onFork(message.id)}>
+                    Fork from here
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
         </div>
       )}
 

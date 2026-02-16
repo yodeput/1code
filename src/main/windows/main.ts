@@ -632,9 +632,10 @@ export function createWindow(options?: { chatId?: string; subChatId?: string }):
   // Show window when ready
   window.on("ready-to-show", () => {
     console.log("[Main] Window", window.id, "ready to show")
-    // Always show native macOS traffic lights
+    // Start with traffic lights hidden - the renderer will show them
+    // after hydration based on the persisted sidebar state
     if (process.platform === "darwin") {
-      window.setWindowButtonVisibility(true)
+      window.setWindowButtonVisibility(false)
     }
     window.show()
   })
@@ -648,10 +649,9 @@ export function createWindow(options?: { chatId?: string; subChatId?: string }):
     window.webContents.send("window:fullscreen-change", true)
   })
   window.on("leave-full-screen", () => {
-    // Show native traffic lights when exiting fullscreen
-    if (process.platform === "darwin") {
-      window.setWindowButtonVisibility(true)
-    }
+    // Don't force traffic lights visible here - the renderer will
+    // restore the correct visibility based on sidebar state when
+    // it receives the fullscreen-change event
     window.webContents.send("window:fullscreen-change", false)
   })
 
@@ -738,12 +738,9 @@ export function createWindow(options?: { chatId?: string; subChatId?: string }):
     }
   }
 
-  // Ensure native traffic lights are visible after page load
+  // Log page load - traffic light visibility is managed by the renderer
   window.webContents.on("did-finish-load", () => {
     console.log("[Main] Page finished loading in window", window.id)
-    if (process.platform === "darwin") {
-      window.setWindowButtonVisibility(true)
-    }
   })
   window.webContents.on(
     "did-fail-load",

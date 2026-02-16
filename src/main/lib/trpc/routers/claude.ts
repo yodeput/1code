@@ -890,13 +890,32 @@ export const claudeRouter = router({
             const existingSessionId = existing?.sessionId || null
 
             // Get resumeSessionAt UUID only if shouldResume flag was set (by rollbackToMessage)
+            // or shouldForkResume flag was set (by forkSubChat)
             const lastAssistantMsg = [...existingMessages]
               .reverse()
               .find((m: any) => m.role === "assistant")
             const resumeAtUuid = lastAssistantMsg?.metadata?.shouldResume
               ? lastAssistantMsg?.metadata?.sdkMessageUuid || null
               : null
+            const shouldForkResume =
+              lastAssistantMsg?.metadata?.shouldForkResume === true
+            const forkResumeAtUuid = shouldForkResume
+              ? lastAssistantMsg?.metadata?.sdkMessageUuid || null
+              : null
             const historyEnabled = input.historyEnabled === true
+
+            // Clear shouldForkResume flag after reading (consumed once) and persist to DB
+            if (shouldForkResume) {
+              for (const m of existingMessages) {
+                if (m.metadata?.shouldForkResume) {
+                  delete m.metadata.shouldForkResume
+                }
+              }
+              db.update(subChats)
+                .set({ messages: JSON.stringify(existingMessages) })
+                .where(eq(subChats.id, input.subChatId))
+                .run()
+            }
 
             // Check if last message is already this user message (avoid duplicate)
             const lastMsg = existingMessages[existingMessages.length - 1]
@@ -1379,6 +1398,9 @@ export const claudeRouter = router({
               `[claude] Existing sessionId from DB: ${existingSessionId}`,
             )
             console.log(`[claude] Resume at UUID: ${resumeAtUuid}`)
+            console.log(
+              `[claude] Fork resume: ${shouldForkResume}, fork UUID: ${forkResumeAtUuid}`,
+            )
             console.log(`[claude] ========== END SESSION DEBUG ==========`)
 
             console.log(
@@ -1884,13 +1906,19 @@ ${prompt}
                 // Use bundled binary
                 pathToClaudeCodeExecutable: claudeBinaryPath,
                 // Session handling: For Ollama, use resume with session ID to maintain history
-                // For Claude API, use resume with rollback support
+                // For Claude API, use resume with rollback/fork support
                 ...(resumeSessionId && {
                   resume: resumeSessionId,
-                  // Rollback support - resume at specific message UUID (from DB)
-                  ...(resumeAtUuid && !isUsingOllama
-                    ? { resumeSessionAt: resumeAtUuid }
-                    : { continue: true }),
+                  // Fork support - resume at specific point and create new session
+                  ...(shouldForkResume && forkResumeAtUuid && !isUsingOllama
+                    ? {
+                        resumeSessionAt: forkResumeAtUuid,
+                        forkSession: true,
+                      }
+                    : // Rollback support - resume at specific message UUID (from DB)
+                      resumeAtUuid && !isUsingOllama
+                      ? { resumeSessionAt: resumeAtUuid }
+                      : { continue: true }),
                 }),
                 // For first message in chat (no session ID yet), use continue mode
                 ...(!resumeSessionId && { continue: true }),

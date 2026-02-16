@@ -95,6 +95,7 @@ import { FileViewerSidebar } from "../../file-viewer"
 import { FileSearchDialog } from "../../file-viewer/components/file-search-dialog"
 import { terminalBottomHeightAtom, terminalDisplayModeAtom, terminalSidebarOpenAtomFamily } from "../../terminal/atoms"
 import { TerminalBottomPanelContent, TerminalSidebar } from "../../terminal/terminal-sidebar"
+import { getTerminalScopeKey } from "../../terminal/utils"
 import {
   agentsChangesPanelCollapsedAtom,
   agentsChangesPanelWidthAtom,
@@ -171,7 +172,7 @@ import {
   createQueueItem, createTextPreview, generateQueueId,
   toQueuedFile,
   toQueuedImage,
-  toQueuedTextContext, type DiffTextContext, type SelectedTextContext
+  toQueuedTextContext, toQueuedDiffTextContext, toQueuedPastedText, type DiffTextContext, type SelectedTextContext
 } from "../lib/queue-utils"
 import { RemoteChatTransport } from "../lib/remote-chat-transport"
 import {
@@ -232,19 +233,14 @@ const selectedTeamIdAtom = atom<string | null>(null)
 // import type { PlanType } from "@/lib/config/subscription-plans"
 type PlanType = string
 
-// UTF-8 safe base64 encoding (btoa doesn't support Unicode)
-function utf8ToBase64(str: string): string {
-  const bytes = new TextEncoder().encode(str)
-  const binString = Array.from(bytes, (byte) => String.fromCodePoint(byte)).join("")
-  return btoa(binString)
-}
+// Module-level scroll position cache (per subChatId, session-only)
+// Stores { scrollTop, scrollHeight, wasAtBottom } so we can restore position on tab switch
+const scrollPositionCache = new Map<
+  string,
+  { scrollTop: number; scrollHeight: number; wasAtBottom: boolean }
+>()
 
-// UTF-8 safe base64 decoding (atob doesn't support Unicode)
-function base64ToUtf8(base64: string): string {
-  const binString = atob(base64)
-  const bytes = Uint8Array.from(binString, (char) => char.codePointAt(0)!)
-  return new TextDecoder().decode(bytes)
-}
+import { utf8ToBase64, base64ToUtf8 } from "../utils/base64"
 
 /** Wait for streaming to finish by subscribing to the status store.
  *  Includes a 30s safety timeout — if the store never transitions to "ready",
@@ -919,9 +915,12 @@ function MessageGroup({ children, isLastGroup }: MessageGroupProps) {
       style={{
         // content-visibility: auto - браузер пропускает layout/paint для элементов вне viewport
         // Это ОГРОМНАЯ оптимизация для длинных чатов - рендерится только видимое
-        contentVisibility: "auto",
-        // Примерная высота для правильного скроллбара до рендеринга
-        containIntrinsicSize: "auto 200px",
+        // НЕ применяем к последней группе: она всегда видна и активно стримится,
+        // content-visibility на ней мешает корректному scrollHeight во время стриминга
+        ...(!isLastGroup && {
+          contentVisibility: "auto",
+          containIntrinsicSize: "auto 200px",
+        }),
         // Последняя группа имеет минимальную высоту контейнера чата (минус отступ)
         ...(isLastGroup && { minHeight: "calc(var(--chat-container-height) - 32px)" }),
       }}
@@ -1971,8 +1970,44 @@ const ChatViewInner = memo(function ChatViewInner({
     }
   }, [])
 
+  // Save scroll position when tab becomes inactive or on unmount
+  useEffect(() => {
+    if (!isActive) {
+      // Tab just became inactive — save current scroll position
+      const container = chatContainerRef.current
+      if (container) {
+        const threshold = 50
+        const wasAtBottom =
+          container.scrollHeight - container.scrollTop - container.clientHeight <= threshold
+        scrollPositionCache.set(subChatId, {
+          scrollTop: container.scrollTop,
+          scrollHeight: container.scrollHeight,
+          wasAtBottom,
+        })
+      }
+    }
+    // On unmount, save scroll position for this sub-chat
+    return () => {
+      const container = chatContainerRef.current
+      if (container) {
+        const threshold = 50
+        const wasAtBottom =
+          container.scrollHeight - container.scrollTop - container.clientHeight <= threshold
+        scrollPositionCache.set(subChatId, {
+          scrollTop: container.scrollTop,
+          scrollHeight: container.scrollHeight,
+          wasAtBottom,
+        })
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive, subChatId])
+
   // Track chat container height via CSS custom property (no re-renders)
   const chatContainerObserverRef = useRef<ResizeObserver | null>(null)
+
+  // Ref for the inner content wrapper (for ResizeObserver-based scroll-to-bottom)
+  const contentWrapperRef = useRef<HTMLDivElement | null>(null)
 
   const editorRef = useRef<AgentsMentionsEditorHandle>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -3322,6 +3357,51 @@ const ChatViewInner = memo(function ChatViewInner({
     ],
   )
 
+  // Fork handler - creates a new sub-chat with messages up to this point
+  // Preserves SDK session context by copying .jsonl session files
+  const isForkingRef = useRef(false)
+  const handleForkFromMessage = useCallback(
+    async (messageId: string) => {
+      if (isStreaming || isForkingRef.current) return
+      isForkingRef.current = true
+
+      try {
+        const result = await trpcClient.chats.forkSubChat.mutate({
+          subChatId,
+          messageId,
+        })
+
+        const newSubChat = result.subChat
+        const newMode = (newSubChat.mode as "plan" | "agent") || "agent"
+
+        // Invalidate + await ensures agentSubChats has the fork before we switch tabs
+        await utils.agents.getAgentChat.invalidate({ chatId: parentChatId })
+
+        // Update Zustand sub-chat store
+        const store = useAgentSubChatStore.getState()
+        store.addToAllSubChats({
+          id: newSubChat.id,
+          name: newSubChat.name || "Fork",
+          created_at: newSubChat.created_at || new Date().toISOString(),
+          mode: newMode,
+        })
+
+        // Set mode atom for the new sub-chat
+        appStore.set(subChatModeAtomFamily(newSubChat.id), newMode)
+
+        // Open the forked sub-chat tab and switch to it
+        store.addToOpenSubChats(newSubChat.id)
+        store.setActiveSubChat(newSubChat.id)
+      } catch (error) {
+        console.error("[handleForkFromMessage] Error:", error)
+        toast.error("Failed to fork conversation")
+      } finally {
+        isForkingRef.current = false
+      }
+    },
+    [isStreaming, subChatId, parentChatId, utils],
+  )
+
   // Sync local isRollingBack state to global atom (prevents multiple rollbacks across chats)
   const setIsRollingBackAtom = useSetAtom(isRollingBackAtom)
   useEffect(() => {
@@ -3451,12 +3531,10 @@ const ChatViewInner = memo(function ChatViewInner({
   // Ref to track if initial scroll has been set for this sub-chat
   const scrollInitializedRef = useRef(false)
 
-  // Track if this tab has been initialized (for keep-alive)
-  const hasInitializedRef = useRef(false)
-
-  // Initialize scroll position on mount (only once per tab with keep-alive)
-  // Strategy: wait for content to stabilize, then scroll to bottom ONCE
-  // No jumping around - just wait and scroll when ready
+  // Initialize scroll position on mount or tab re-activation.
+  // Strategy: restore saved position if user was scrolled up, otherwise scroll to bottom.
+  // Uses ResizeObserver on content wrapper to catch ALL height changes (markdown rendering,
+  // syntax highlighting, image loading, content-visibility reflows) — not just childList mutations.
   useLayoutEffect(() => {
     // Skip if not active (keep-alive: hidden tabs don't need scroll init)
     if (!isActive) return
@@ -3464,34 +3542,46 @@ const ChatViewInner = memo(function ChatViewInner({
     const container = chatContainerRef.current
     if (!container) return
 
-    // With keep-alive, only initialize once per tab mount
-    if (hasInitializedRef.current) return
-    hasInitializedRef.current = true
-
-    // Reset on sub-chat change
     scrollInitializedRef.current = false
     isInitializingScrollRef.current = true
 
-    // IMMEDIATE scroll to bottom - no waiting
-    container.scrollTop = container.scrollHeight
-    shouldAutoScrollRef.current = true
+    // Check for saved scroll position from tab switch
+    const savedPosition = scrollPositionCache.get(subChatId)
+
+    if (savedPosition && !savedPosition.wasAtBottom) {
+      // User was scrolled up — restore their position relative to content bottom.
+      // Content may have changed height since we saved, so we offset from the bottom:
+      const savedOffset = savedPosition.scrollHeight - savedPosition.scrollTop
+      container.scrollTop = Math.max(0, container.scrollHeight - savedOffset)
+      shouldAutoScrollRef.current = false
+    } else {
+      // No saved position or user was at bottom — scroll to bottom
+      container.scrollTop = container.scrollHeight
+      shouldAutoScrollRef.current = true
+    }
 
     // Mark as initialized IMMEDIATELY
     scrollInitializedRef.current = true
     isInitializingScrollRef.current = false
 
-    // MutationObserver for async content (images, code blocks loading after initial render)
-    const observer = new MutationObserver((mutations) => {
+    // ResizeObserver on content wrapper to detect any height change
+    // (markdown rendering, syntax highlighting, image loads, content-visibility reflows, etc.)
+    // This is more reliable than MutationObserver which only catches childList changes.
+    const contentWrapper = contentWrapperRef.current
+    let lastContentHeight = contentWrapper?.getBoundingClientRect().height ?? 0
+    // Track the previous scrollHeight so we can adjust restored positions proportionally
+    let prevScrollHeight = container.scrollHeight
+
+    const resizeObserver = new ResizeObserver(() => {
       // Skip if not active (keep-alive: don't scroll hidden tabs)
-      if (!isActive) return
-      if (!shouldAutoScrollRef.current) return
+      if (!isActiveRef.current) return
 
-      // Check if content was added
-      const hasAddedContent = mutations.some(
-        (m) => m.type === "childList" && m.addedNodes.length > 0
-      )
+      const newContentHeight = contentWrapper?.getBoundingClientRect().height ?? 0
+      if (newContentHeight === lastContentHeight) return
+      lastContentHeight = newContentHeight
 
-      if (hasAddedContent) {
+      if (shouldAutoScrollRef.current) {
+        // Auto-scroll to bottom as content grows
         requestAnimationFrame(() => {
           isAutoScrollingRef.current = true
           container.scrollTop = container.scrollHeight
@@ -3499,13 +3589,24 @@ const ChatViewInner = memo(function ChatViewInner({
             isAutoScrollingRef.current = false
           })
         })
+      } else {
+        // User is scrolled up — maintain their relative position as content height changes
+        // (e.g., syntax highlighting expanding code blocks above the viewport)
+        const newScrollHeight = container.scrollHeight
+        if (newScrollHeight !== prevScrollHeight && prevScrollHeight > 0) {
+          const delta = newScrollHeight - prevScrollHeight
+          container.scrollTop = container.scrollTop + delta
+        }
       }
+      prevScrollHeight = container.scrollHeight
     })
 
-    observer.observe(container, { childList: true, subtree: true })
+    if (contentWrapper) {
+      resizeObserver.observe(contentWrapper)
+    }
 
     return () => {
-      observer.disconnect()
+      resizeObserver.disconnect()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subChatId, isActive])
@@ -3612,13 +3713,15 @@ const ChatViewInner = memo(function ChatViewInner({
     const currentImages = imagesRef.current
     const currentFiles = filesRef.current
     const currentTextContexts = textContextsRef.current
+    const currentDiffTextContexts = diffTextContextsRef.current
     const currentPastedTexts = pastedTextsRef.current
     const hasImages =
       currentImages.filter((img) => !img.isLoading && img.url).length > 0
     const hasTextContexts = currentTextContexts.length > 0
+    const hasDiffTextContexts = currentDiffTextContexts.length > 0
     const hasPastedTexts = currentPastedTexts.length > 0
 
-    if (!hasText && !hasImages && !hasTextContexts && !hasPastedTexts) return
+    if (!hasText && !hasImages && !hasTextContexts && !hasDiffTextContexts && !hasPastedTexts) return
 
     // If streaming, add to queue instead of sending directly
     if (isStreamingRef.current) {
@@ -3629,13 +3732,17 @@ const ChatViewInner = memo(function ChatViewInner({
         .filter((f) => !f.isLoading && f.url)
         .map(toQueuedFile)
       const queuedTextContexts = currentTextContexts.map(toQueuedTextContext)
+      const queuedDiffTextContexts = currentDiffTextContexts.map(toQueuedDiffTextContext)
+      const queuedPastedTexts = currentPastedTexts.map(toQueuedPastedText)
 
       const item = createQueueItem(
         generateQueueId(),
         inputValue.trim(),
         queuedImages.length > 0 ? queuedImages : undefined,
         queuedFiles.length > 0 ? queuedFiles : undefined,
-        queuedTextContexts.length > 0 ? queuedTextContexts : undefined
+        queuedTextContexts.length > 0 ? queuedTextContexts : undefined,
+        queuedDiffTextContexts.length > 0 ? queuedDiffTextContexts : undefined,
+        queuedPastedTexts.length > 0 ? queuedPastedTexts : undefined,
       )
       addToQueue(subChatId, item)
 
@@ -3646,6 +3753,8 @@ const ChatViewInner = memo(function ChatViewInner({
       }
       clearAll()
       clearTextContexts()
+      clearDiffTextContexts()
+      clearPastedTexts()
       return
     }
 
@@ -3732,7 +3841,6 @@ const ChatViewInner = memo(function ChatViewInner({
     ]
 
     // Add text contexts as mention tokens
-    const currentDiffTextContexts = diffTextContextsRef.current
     let mentionPrefix = ""
 
     if (currentTextContexts.length > 0 || currentDiffTextContexts.length > 0 || currentPastedTexts.length > 0) {
@@ -3905,6 +4013,15 @@ const ChatViewInner = memo(function ChatViewInner({
           return `@[${MENTION_PREFIXES.DIFF}${dtc.filePath}:${lineNum}:${preview}:${encodedText}]`
         })
         mentionPrefix += diffMentions.join(" ") + " "
+      }
+
+      // Add pasted text as pasted mentions
+      if (item.pastedTexts && item.pastedTexts.length > 0) {
+        const pastedMentions = item.pastedTexts.map((pt) => {
+          const sanitizedPreview = pt.preview.replace(/[:\[\]|]/g, "")
+          return `@[${MENTION_PREFIXES.PASTED}${pt.size}:${sanitizedPreview}|${pt.filePath}]`
+        })
+        mentionPrefix += pastedMentions.join(" ") + " "
       }
 
       if (item.message || mentionPrefix) {
@@ -4394,6 +4511,7 @@ const ChatViewInner = memo(function ChatViewInner({
         data-chat-container
       >
         <div
+          ref={contentWrapperRef}
           className="px-2 max-w-2xl mx-auto -mb-4 space-y-4"
           style={{
             paddingBottom: "32px",
@@ -4417,6 +4535,7 @@ const ChatViewInner = memo(function ChatViewInner({
               MessageGroupWrapper={MessageGroup}
               toolRegistry={AgentToolRegistry}
               onRollback={handleRollback}
+              onFork={handleForkFromMessage}
             />
           </div>
         </div>
@@ -5295,6 +5414,15 @@ export function ChatView({
   const worktreePath = agentChat?.worktreePath as string | null
   // Desktop: original project path for MCP config lookup
   const originalProjectPath = (agentChat as any)?.project?.path as string | undefined
+
+  // Terminal scope key: shared by project path (local mode) or isolated per workspace (worktree)
+  const terminalScopeKey = useMemo(() => {
+    return getTerminalScopeKey({
+      branch: (agentChat as any)?.branch ?? null,
+      worktreePath: worktreePath,
+      id: chatId,
+    })
+  }, [(agentChat as any)?.branch, worktreePath, chatId])
   // Fallback for web: use sandbox_id
   const sandboxId = agentChat?.sandbox_id
   const sandboxUrl = sandboxId ? `https://3003-${sandboxId}.e2b.app` : null
@@ -7467,6 +7595,7 @@ Make sure to preserve all functionality from both branches when resolving confli
         {worktreePath && (
           <TerminalSidebar
             chatId={chatId}
+            scopeKey={terminalScopeKey}
             cwd={worktreePath}
             workspaceId={chatId}
           />
@@ -7539,6 +7668,7 @@ Make sure to preserve all functionality from both branches when resolving confli
         >
           <TerminalBottomPanelContent
             chatId={chatId}
+            scopeKey={terminalScopeKey}
             cwd={worktreePath}
             workspaceId={chatId}
             onClose={() => setIsTerminalSidebarOpen(false)}

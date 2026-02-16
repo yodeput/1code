@@ -50,6 +50,7 @@ import { AgentsSubChatsSidebar } from "../../sidebar/agents-subchats-sidebar"
 import { AgentPreview } from "./agent-preview"
 import { AgentDiffView } from "./agent-diff-view"
 import { TerminalSidebar, terminalSidebarOpenAtomFamily } from "../../terminal"
+import { getTerminalScopeKey } from "../../terminal/utils"
 import {
   useAgentSubChatStore,
   type SubChatMeta,
@@ -841,6 +842,16 @@ export function AgentsContent() {
   const worktreePath = (chatData as any)?.worktreePath as string | undefined
   const canShowTerminal = !!worktreePath
 
+  // Terminal scope key for shared terminals
+  const terminalScopeKey = useMemo(() => {
+    if (!selectedChatId || !worktreePath) return `ws:${selectedChatId || "none"}`
+    return getTerminalScopeKey({
+      branch: (chatData as any)?.branch ?? null,
+      worktreePath: worktreePath,
+      id: selectedChatId,
+    })
+  }, [(chatData as any)?.branch, worktreePath, selectedChatId])
+
   // Mobile layout - completely different structure
   if (isMobile) {
     return (
@@ -894,6 +905,7 @@ export function AgentsContent() {
           // Terminal Mode - fullscreen terminal
           <TerminalSidebar
             chatId={selectedChatId}
+            scopeKey={terminalScopeKey}
             cwd={worktreePath!}
             workspaceId={selectedChatId}
             isMobileFullscreen={true}

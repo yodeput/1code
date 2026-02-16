@@ -27,6 +27,7 @@ interface IsolatedMessagesSectionProps {
   sandboxSetupError?: string
   onRetrySetup?: () => void
   onRollback?: (msg: any) => void
+  onFork?: (messageId: string) => void
   // Components passed from parent - must be stable references
   UserBubbleComponent: React.ComponentType<{
     messageId: string
@@ -57,6 +58,7 @@ function areSectionPropsEqual(
     prev.sandboxSetupError === next.sandboxSetupError &&
     prev.onRetrySetup === next.onRetrySetup &&
     prev.onRollback === next.onRollback &&
+    prev.onFork === next.onFork &&
     prev.UserBubbleComponent === next.UserBubbleComponent &&
     prev.ToolCallComponent === next.ToolCallComponent &&
     prev.MessageGroupWrapper === next.MessageGroupWrapper &&
@@ -73,6 +75,7 @@ export const IsolatedMessagesSection = memo(function IsolatedMessagesSection({
   sandboxSetupError,
   onRetrySetup,
   onRollback,
+  onFork,
   UserBubbleComponent,
   ToolCallComponent,
   MessageGroupWrapper,
@@ -113,6 +116,7 @@ export const IsolatedMessagesSection = memo(function IsolatedMessagesSection({
           sandboxSetupError={sandboxSetupError}
           onRetrySetup={onRetrySetup}
           onRollback={onRollback}
+          onFork={onFork}
           UserBubbleComponent={UserBubbleComponent}
           ToolCallComponent={ToolCallComponent}
           MessageGroupWrapper={MessageGroupWrapper}
